@@ -1,0 +1,9 @@
+[project]
+name = "hermes-plugin-feishu-tag"
+version = "0.1.0"
+description = "Hermes Feishu tag platform plugin"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

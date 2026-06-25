@@ -1,0 +1,4 @@
+name: hermes-plugin-feishu-tag
+platform: feishu
+hermes_version: "0.1.0"
+entrypoint: hermes_plugin_feishu:register_plugin
