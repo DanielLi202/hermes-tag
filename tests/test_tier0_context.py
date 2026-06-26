@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
+os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
+
 from hermes_plugin_feishu import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig
 
 
@@ -69,6 +71,12 @@ class Tier0ContextV2Test(unittest.TestCase):
         asyncio.run(a._dispatch_inbound_event(event("那个截图","a2",user="Alice",at=True)))
         ctx=a.dispatched[-1].channel_context
         self.assertIn("Alice: Alice setup",ctx); self.assertNotIn("Bob unrelated",ctx)
+
+    def test_l2_falls_back_to_recent_same_chat_when_no_author_or_thread_match(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg())
+        asyncio.run(a._dispatch_inbound_event(event("deadline is Friday","b1",user="Bob")))
+        asyncio.run(a._dispatch_inbound_event(event("when is the deadline","a1",user="Alice",at=True)))
+        self.assertIn("Bob: deadline is Friday", a.dispatched[-1].channel_context)
 
     def test_budget_keeps_current_before_background(self):
         a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=30))

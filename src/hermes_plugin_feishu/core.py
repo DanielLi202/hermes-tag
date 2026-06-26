@@ -171,7 +171,11 @@ class TagStore:
             if "那个截图" in event.text and json.loads(row["media_paths"] or "[]"):
                 s += 3
             return s, row["created_at"]
-        return [r for r in sorted(rows, key=score, reverse=True) if score(r)[0] > 0][:limit]
+        ranked = [r for r in sorted(rows, key=score, reverse=True) if score(r)[0] > 0]
+        if ranked:
+            return ranked[:limit]
+        recent = [r for r in rows if r["message_id"] != event.message_id]
+        return list(reversed(recent))[:limit]
 
     def evict_tier0(self, chat_id: str, ttl_seconds: int, max_count: int) -> int:
         with self.lock:
@@ -327,6 +331,16 @@ class TagEngine:
             return None
         command_result = self.seam.handle_command(event)
         if command_result is not None:
+            try:
+                await self.seam.send_to_platform(
+                    chat_id,
+                    format_command_result(command_result),
+                    reply_to=getattr(event, "message_id", None),
+                    metadata={"tag_command": True},
+                )
+            except Exception:
+                self.store.inc("command_send_failure")
+                raise
             return command_result
         enhanced, orphan_paths = await self.seam.enhance_event(event)
         self._prune_pending()
@@ -356,6 +370,62 @@ class TagEngine:
         for key, (created_at, _, _) in list(self.pending.items()):
             if created_at < cutoff:
                 del self.pending[key]
+
+
+def format_command_result(result: Any) -> str:
+    if isinstance(result, str):
+        return result
+    if not isinstance(result, dict):
+        return json.dumps(result, ensure_ascii=False, sort_keys=True)
+
+    error = result.get("error")
+    if error:
+        return f"error: {error}"
+    if result.get("cleared"):
+        if result.get("session_reset"):
+            return "cleared; session reset"
+        if "session_reset" in result:
+            reason = result.get("session_reset_reason") or "unavailable"
+            return f"cleared; session reset skipped: {reason}"
+        return "cleared"
+    if result.get("disabled"):
+        return "disabled"
+    if "help" in result:
+        lines = result.get("help") or []
+        return "tag commands:\n" + "\n".join(str(line) for line in lines)
+    if "status" in result:
+        status = result.get("status") or {}
+        if isinstance(status, dict):
+            capabilities = status.get("capabilities", {}) or {}
+            metrics = status.get("metrics", {}) or {}
+            capability_text = " ".join(f"{key}={value}" for key, value in sorted(capabilities.items()))
+            metric_text = " ".join(f"{key}={value}" for key, value in sorted(metrics.items()))
+            platform = status.get("platform") or status.get("adapter") or ""
+            return f"status platform={platform} {capability_text}\nmetrics {metric_text}".strip()
+        return f"status {status}"
+    if {"tier0", "tier1", "standing_jobs"}.issubset(result):
+        return f"tier0={result['tier0']} tier1={result['tier1']} standing_jobs={result['standing_jobs']}"
+    if result.get("confirmation_required"):
+        schedule = result.get("schedule", "")
+        return f"confirmation_required schedule={schedule}".strip()
+    if result.get("created"):
+        return f"created {result['created']} cron_job_id={result.get('cron_job_id', '')}".strip()
+    if "jobs" in result:
+        jobs = result.get("jobs") or []
+        if not jobs:
+            return "jobs: none"
+        lines = ["jobs:"]
+        for job in jobs:
+            if isinstance(job, dict):
+                lines.append(f"- {job.get('id', '')} {job.get('status', '')} {job.get('schedule', '')} {job.get('description', '')}".rstrip())
+            else:
+                lines.append(f"- {job}")
+        return "\n".join(lines)
+    if "cancelled" in result:
+        return f"cancelled={bool(result.get('cancelled'))} job_id={result.get('job_id', '')}".strip()
+    if "updated" in result:
+        return f"updated={bool(result.get('updated'))} status={result.get('status', '')}".strip()
+    return json.dumps(result, ensure_ascii=False, sort_keys=True)
 
 
 def chat_id_of(event: Any) -> str:

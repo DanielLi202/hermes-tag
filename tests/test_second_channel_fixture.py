@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
+os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
+
 from hermes_plugin_feishu import FeishuTagConfig, FeishuTagStore, MessageEvent, TagEngine
 from hermes_plugin_feishu.core import author_of, chat_id_of, copy_event, thread_id_of
 
@@ -92,6 +94,7 @@ class SecondChannelFixtureTest(unittest.TestCase):
 
         degraded=asyncio.run(engine.handle_message(ev("/standing add weekly-Friday-10:00 Asia/Shanghai summary", "s1", at=True)))
         self.assertEqual(degraded, {"error":"cron unsupported"})
+        self.assertEqual(seam.sent[-1], ("chat-b", "error: cron unsupported", "s1", {"tag_command": True}))
         self.assertFalse(engine.preflight_status()["capabilities"]["cron_delivery"])
 
     def test_second_channel_fixture_does_not_use_feishu_adapter_subclass(self):

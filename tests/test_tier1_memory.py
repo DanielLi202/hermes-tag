@@ -6,6 +6,8 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
+os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
+
 import hermes_plugin_feishu.adapter as adapter_mod
 from hermes_plugin_feishu import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig
 

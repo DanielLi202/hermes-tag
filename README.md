@@ -4,10 +4,10 @@ Local scaffold for a Hermes `feishu` platform plugin implementing the Feishu Tag
 
 Pinned integration targets:
 
-- `NousResearch/hermes-agent` tag `v2026.6.19` (`2bd1977d8fad185c9b4be47884f7e87f1add0ce3`), project version `0.17.0`
+- `NousResearch/hermes-agent` project version `0.17.0` / `2026.6.19` or newer compatible installs
 - `lark-oapi==1.6.9`
 
-The plugin exposes a root-level `__init__.py` for Hermes directory-plugin installs and delegates to `src/hermes_plugin_feishu.register(ctx)`. It subclasses the real `gateway.platforms.feishu.FeishuAdapter` when Hermes is installed; tests use contract-shaped local stubs.
+The plugin exposes a root-level `__init__.py` for Hermes directory-plugin installs and delegates to `src/hermes_plugin_feishu.register(ctx)`. It subclasses the real Hermes Feishu adapter, preferring the current `plugins.platforms.feishu.adapter` path and falling back to the older `gateway.platforms.feishu` path when available; tests use contract-shaped local stubs.
 
 ## Verify
 
@@ -17,7 +17,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 
 ## Integration smoke status
 
-Live Hermes/Feishu smoke is not included in this repository. It requires a real Hermes gateway, a real Feishu test app/bot, a pilot group, and current scope approval. See `docs/repair-evidence.md` for the current blocker record.
+The test suite includes a local Hermes import/registry smoke when `/Users/february/.hermes/hermes-agent` is present. Live Feishu message smoke still requires a real gateway, Feishu app/bot, pilot group, and current scope approval. See `docs/repair-evidence.md`.
 
 ## Install notes
 

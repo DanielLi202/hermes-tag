@@ -6,6 +6,8 @@ import stat
 import tempfile
 import unittest
 
+os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
+
 import hermes_plugin_feishu.adapter as mod
 from hermes_plugin_feishu import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig, TagEngine, adapter_factory, assert_real_seams, register
 
@@ -19,6 +21,12 @@ def temp_config(**kw):
 def source(chat="chat-a", user="Alice"):
     return type("S", (), {"chat_id":chat,"user_id":user,"user_name":user,"thread_id":None})()
 
+def dm_source(chat="chat-a", user="Alice"):
+    return type("S", (), {"chat_id":chat,"user_id":user,"user_name":user,"thread_id":None,"chat_type":"dm"})()
+
+def raw_feishu_data(message):
+    return type("Data", (), {"event": type("Event", (), {"message": message})()})()
+
 class Ctx:
     def __init__(self): self.calls=[]
     def register_platform(self, name, label, adapter_factory, check_fn, validate_config=None, required_env=None, install_hint="", **entry_kwargs):
@@ -31,7 +39,20 @@ class FoundationV2Test(unittest.TestCase):
         self.assertEqual(call["name"], "feishu")
         self.assertIn("required_env", call)
         self.assertIn("emoji", call["entry_kwargs"])
+        self.assertIn("apply_yaml_config_fn", call["entry_kwargs"])
+        self.assertIn("allowed_users_env", call["entry_kwargs"])
+        self.assertIn("allow_all_env", call["entry_kwargs"])
+        self.assertIn("cron_deliver_env_var", call["entry_kwargs"])
+        self.assertIn("standalone_sender_fn", call["entry_kwargs"])
         self.assertFalse(hasattr(mod,"register" + "_plugin"))
+
+    def test_apply_yaml_config_accepts_legacy_and_platform_extra_locations(self):
+        top = mod.apply_yaml_config({"extra":{"feishu_tag":{"enabled":True,"enabled_chats":["oc-top"]}}}, {"require_mention":False})
+        nested = mod.apply_yaml_config({}, {"extra":{"feishu_tag":{"enabled":True,"enabled_chats":["oc-nested"]}}})
+        direct = mod.apply_yaml_config({}, {"feishu_tag":{"enabled":True,"enabled_chats":["oc-direct"]}})
+        self.assertEqual(top["feishu_tag"]["enabled_chats"], ["oc-top"])
+        self.assertEqual(nested["feishu_tag"]["enabled_chats"], ["oc-nested"])
+        self.assertEqual(direct["feishu_tag"]["enabled_chats"], ["oc-direct"])
 
     def test_factory_falls_back_when_tag_unconfigured_or_disabled(self):
         self.assertNotIsInstance(adapter_factory(PlatformConfig()), FeishuTagAdapter)
@@ -80,7 +101,8 @@ class FoundationV2Test(unittest.TestCase):
         self.assertIs(a.pending_tier1, a.engine.pending)
         src=inspect.getsource(mod.FeishuTagAdapter._dispatch_inbound_event)
         self.assertIn("self.engine.handle_message", src)
-        self.assertNotIn("super()._dispatch_inbound_event", src)
+        self.assertIn("not in self.tag.enabled_chats", src)
+        self.assertIn("super()._dispatch_inbound_event", src)
 
     def test_core_does_not_import_feishu_adapter_module(self):
         text=Path("src/hermes_plugin_feishu/core.py").read_text()
@@ -93,12 +115,13 @@ class FoundationV2Test(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"exactly one"): temp_config(enabled_chats=[])
         with self.assertRaisesRegex(ValueError,"exactly one"): temp_config(enabled_chats=["a","b"])
 
-    def test_non_enabled_chat_is_dropped_without_storage(self):
+    def test_non_enabled_chat_passthrough_without_storage(self):
         a=FeishuTagAdapter(PlatformConfig(), temp_config())
         import asyncio
         self.assertIsNone(asyncio.run(a._dispatch_inbound_event(MessageEvent("hi", source=source("other"), message_id="m1"))))
         self.assertEqual(a.store.count_tier0("other"),0)
-        self.assertEqual(a.preflight_status()["metrics"]["admission_dropped"],1)
+        self.assertEqual(len(a.dispatched), 1)
+        self.assertEqual(a.preflight_status()["metrics"]["admission_dropped"],0)
 
     def test_receive_all_still_self_gates_unmentioned_messages(self):
         a=FeishuTagAdapter(PlatformConfig(), temp_config(require_mention=False))
@@ -106,6 +129,22 @@ class FoundationV2Test(unittest.TestCase):
         self.assertIsNone(asyncio.run(a._dispatch_inbound_event(MessageEvent("ambient", source=source(), raw_message={"mentions":[]}, message_id="m1"))))
         self.assertEqual(a.store.count_tier0("chat-a"),1)
         self.assertEqual(a.dispatched,[])
+
+    def test_group_mention_from_real_feishu_raw_message_dispatches(self):
+        a=FeishuTagAdapter(PlatformConfig(), temp_config(require_mention=False))
+        raw_message=type("RawMessage", (), {"mentions":[{"id":{"open_id":"bot-open"}}], "content":"{}", "message_type":"text"})()
+        a._mentions_self=lambda message: bool(getattr(message, "mentions", None))
+        import asyncio
+        self.assertIsNone(asyncio.run(a._dispatch_inbound_event(MessageEvent("question", source=source(), raw_message=raw_feishu_data(raw_message), message_id="m2"))))
+        self.assertEqual(a.store.count_tier0("chat-a"),1)
+        self.assertEqual(len(a.dispatched),1)
+
+    def test_dm_pilot_does_not_require_mention(self):
+        a=FeishuTagAdapter(PlatformConfig(), temp_config(require_mention=False))
+        import asyncio
+        self.assertIsNone(asyncio.run(a._dispatch_inbound_event(MessageEvent("dm hello", source=dm_source(), raw_message={"mentions":[]}, message_id="m1"))))
+        self.assertEqual(a.store.count_tier0("chat-a"),1)
+        self.assertEqual(len(a.dispatched),1)
 
     def test_without_group_msg_degrades_l2_but_keeps_tier1(self):
         caps=FeishuTagAdapter(PlatformConfig(), temp_config(granted_scopes=[])).preflight_status()["capabilities"]
@@ -124,7 +163,9 @@ class FoundationV2Test(unittest.TestCase):
     def test_after_install_documents_receive_all_and_no_brick_fallback(self):
         text=Path("after-install.md").read_text(encoding="utf-8")
         self.assertIn("require_mention: false", text)
-        self.assertIn("extra.feishu_tag.enabled: true", text)
+        self.assertIn("feishu_tag:", text)
+        self.assertIn("enabled: true", text)
+        self.assertIn("legacy top-level `extra.feishu_tag`", text)
         self.assertIn("falls back", text)
 
 if __name__ == "__main__": unittest.main()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+import importlib
 from pathlib import Path
 import inspect
 import json
@@ -10,19 +11,60 @@ import re
 import sqlite3
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any, Callable
 
 HERMES_TAG = "v2026.6.19"
 HERMES_COMMIT = "2bd1977d8fad185c9b4be47884f7e87f1add0ce3"
 LARK_OAPI_VERSION = "1.6.9"
 BOUNDARY_TEXT = "enabled_chats is the storage/processing boundary, not the receive boundary"
+BASE_FEISHU_MODULE = ""
+BASE_FEISHU_IMPORT_ERROR = ""
+_TAG_HELP = [
+    "/tag admin count",
+    "/tag admin clear",
+    "/tag admin disable",
+    "/tag standing add <schedule> <timezone> <description>",
+    "/tag standing confirm",
+    "/tag standing list",
+    "/tag standing cancel <job_id>",
+    "/tag standing pause <job_id>",
+    "/tag standing enable <job_id>",
+    "/tag status",
+]
+
+
+def _load_base_feishu_module() -> Any:
+    errors: list[str] = []
+    for module_name in ("plugins.platforms.feishu.adapter", "gateway.platforms.feishu"):
+        try:
+            return importlib.import_module(module_name)
+        except Exception as exc:
+            errors.append(f"{module_name}: {type(exc).__name__}: {exc}")
+    raise ImportError("; ".join(errors))
+
 
 try:  # real Hermes path
+    if os.getenv("HERMES_PLUGIN_FEISHU_USE_STUBS"):
+        raise ImportError("forced stub mode")
     from gateway.config import PlatformConfig
-    from gateway.platforms.feishu import FEISHU_AVAILABLE, FeishuAdapter, normalize_feishu_message
     from gateway.platforms.base import MessageEvent, MessageType
+    _base_feishu = _load_base_feishu_module()
+    BASE_FEISHU_MODULE = getattr(_base_feishu, "__name__", "")
+    FEISHU_AVAILABLE = bool(getattr(_base_feishu, "FEISHU_AVAILABLE", False))
+    FeishuAdapter = getattr(_base_feishu, "FeishuAdapter")
+    normalize_feishu_message = getattr(_base_feishu, "normalize_feishu_message")
+    _base_check_requirements = getattr(_base_feishu, "check_feishu_requirements", lambda: FEISHU_AVAILABLE)
+    _base_apply_yaml_config = getattr(_base_feishu, "_apply_yaml_config", None)
+    _base_interactive_setup = getattr(_base_feishu, "interactive_setup", None)
+    _base_standalone_send = getattr(_base_feishu, "_standalone_send", None)
 except Exception:  # local tests / scaffold path
+    BASE_FEISHU_IMPORT_ERROR = "base Feishu adapter is unavailable"
     FEISHU_AVAILABLE = False
+    _base_check_requirements = lambda: FEISHU_AVAILABLE
+    _base_apply_yaml_config = None
+    _base_interactive_setup = None
+    _base_standalone_send = None
 
     class PlatformConfig:  # type: ignore[no-redef]
         def __init__(self, extra: dict[str, Any] | None = None):
@@ -84,6 +126,8 @@ except Exception:  # local tests / scaffold path
 
 
 from .core import TagConfig as FeishuTagConfig, TagEngine, TagStore as FeishuTagStore
+
+
 class HermesCronAPI:
     def create(self, *, chat_id: str, description: str, schedule: str, timezone_name: str) -> str:
         from cron.jobs import create_job
@@ -110,7 +154,45 @@ class HermesCronAPI:
 
 
 def check_requirements() -> bool:
-    return FEISHU_AVAILABLE
+    try:
+        return bool(_base_check_requirements())
+    except Exception:
+        return False
+
+
+def _is_connected(config: Any) -> bool:
+    extra = getattr(config, "extra", {}) or {}
+    app_id = str(extra.get("app_id") or os.getenv("FEISHU_APP_ID") or "").strip()
+    if app_id:
+        return True
+    try:
+        import hermes_cli.gateway as gateway_mod
+        return bool(str(gateway_mod.get_env_value("FEISHU_APP_ID") or "").strip())
+    except Exception:
+        return False
+
+
+def _merge_feishu_tag_extra(target: dict[str, Any], source: Any) -> None:
+    if not isinstance(source, dict):
+        return
+    tag_cfg = source.get("feishu_tag")
+    if isinstance(tag_cfg, dict):
+        target["feishu_tag"] = tag_cfg
+
+
+def apply_yaml_config(yaml_cfg: dict, feishu_cfg: dict) -> dict | None:
+    seeded: dict[str, Any] = {}
+    if callable(_base_apply_yaml_config):
+        base_seeded = _base_apply_yaml_config(yaml_cfg, feishu_cfg)
+        if isinstance(base_seeded, dict):
+            seeded.update(base_seeded)
+
+    _merge_feishu_tag_extra(seeded, feishu_cfg)
+    extra = feishu_cfg.get("extra") if isinstance(feishu_cfg, dict) else None
+    _merge_feishu_tag_extra(seeded, extra)
+    top_extra = yaml_cfg.get("extra") if isinstance(yaml_cfg, dict) else None
+    _merge_feishu_tag_extra(seeded, top_extra)
+    return seeded or None
 
 
 def register(ctx: Any) -> None:
@@ -119,9 +201,19 @@ def register(ctx: Any) -> None:
         label="Feishu Tag",
         adapter_factory=adapter_factory,
         check_fn=check_requirements,
+        is_connected=_is_connected,
+        validate_config=_is_connected,
         required_env=["FEISHU_APP_ID", "FEISHU_APP_SECRET"],
-        install_hint="Install hermes-agent[feishu,cron] pinned to v2026.6.19 and lark-oapi==1.6.9.",
+        install_hint="Install Hermes with the Feishu platform dependencies, for example: pip install 'hermes-agent[feishu,cron]'.",
+        setup_fn=_base_interactive_setup,
+        apply_yaml_config_fn=apply_yaml_config,
+        allowed_users_env="FEISHU_ALLOWED_USERS",
+        allow_all_env="FEISHU_ALLOW_ALL_USERS",
+        cron_deliver_env_var="FEISHU_HOME_CHANNEL",
+        standalone_sender_fn=_base_standalone_send,
+        max_message_length=8000,
         emoji="🏷️",
+        allow_update_command=True,
     )
 
 
@@ -186,6 +278,7 @@ class FeishuTagAdapter(FeishuAdapter):
             "hermes_tag": HERMES_TAG,
             "hermes_commit": HERMES_COMMIT,
             "lark_oapi_version": LARK_OAPI_VERSION,
+            "base_feishu_module": BASE_FEISHU_MODULE,
             "bot_app_id": self.tag.bot_app_id,
             "enabled_chats": list(self.tag.enabled_chats),
             "boundary": BOUNDARY_TEXT,
@@ -206,6 +299,7 @@ class FeishuTagAdapter(FeishuAdapter):
                 "tier1_memories": self.store.count_tier1(chat_id),
                 "tier1_written": self.store.metric("tier1_written"),
                 "tier1_write_failure": self.store.metric("tier1_write_failure"),
+                "command_send_failure": self.store.metric("command_send_failure"),
                 "media_download_success": self.store.metric("media_download_success"),
                 "media_download_failure": self.store.metric("media_download_failure"),
                 "degraded_no_group_msg": 0 if self.tag.has_group_msg_scope else 1,
@@ -216,6 +310,8 @@ class FeishuTagAdapter(FeishuAdapter):
         }
 
     async def _dispatch_inbound_event(self, event: MessageEvent) -> Any:
+        if _chat_id(event) not in self.tag.enabled_chats:
+            return await super()._dispatch_inbound_event(event)
         return await self.engine.handle_message(event)
 
     @property
@@ -231,6 +327,15 @@ class FeishuTagAdapter(FeishuAdapter):
         return True
 
     def is_mentioned(self, event: MessageEvent) -> bool:
+        if getattr(getattr(event, "source", None), "chat_type", "") == "dm":
+            return True
+        raw_message = _raw_feishu_message(event)
+        if raw_message is not None and hasattr(self, "_mentions_self"):
+            try:
+                if self._mentions_self(raw_message):
+                    return True
+            except Exception:
+                pass
         return _is_mentioned(event, self.tag)
 
     def handle_command(self, event: MessageEvent) -> Any | None:
@@ -249,7 +354,7 @@ class FeishuTagAdapter(FeishuAdapter):
         self._write_tier1_memory(event, enhanced, result)
 
     def store_tier0(self, event: MessageEvent, media_paths: list[str] | None = None) -> None:
-        self.store.insert_tier0(
+        inserted = self.store.insert_tier0(
             chat_id=_chat_id(event),
             message_id=event.message_id or "",
             text=event.text,
@@ -257,6 +362,17 @@ class FeishuTagAdapter(FeishuAdapter):
             thread_id=_thread_id(event) or event.reply_to_message_id,
             media_paths=media_paths,
         )
+        if inserted:
+            detail = json.dumps(
+                {
+                    "message_id": event.message_id,
+                    "author": _author(event),
+                    "thread_id": _thread_id(event) or event.reply_to_message_id,
+                    "text_chars": len(event.text or ""),
+                },
+                ensure_ascii=False,
+            )
+            self.store.audit("tier0_insert", _chat_id(event), detail)
 
     async def _enhance_event(self, event: MessageEvent) -> tuple[MessageEvent, list[str]]:
         media_urls, media_types, placeholders, paths = await self._load_reply_media(event)
@@ -276,6 +392,20 @@ class FeishuTagAdapter(FeishuAdapter):
         setattr(enhanced, "l2_context", background)
         setattr(enhanced, "source_message_ids", [row["message_id"] for row in l2_rows])
         setattr(enhanced, "task_session_id", f"{_chat_id(event)}:{event.message_id}")
+        self.store.audit(
+            "enhance_event",
+            _chat_id(event),
+            json.dumps(
+                {
+                    "message_id": event.message_id,
+                    "l2_count": len(background),
+                    "tier1_count": len(memories),
+                    "source_message_ids": [row["message_id"] for row in l2_rows],
+                    "context_preview": enhanced.channel_context[:240],
+                },
+                ensure_ascii=False,
+            ),
+        )
         return enhanced, orphan_paths
 
 
@@ -404,11 +534,29 @@ class FeishuTagAdapter(FeishuAdapter):
 
     def _maybe_handle_command(self, event: MessageEvent) -> Any | None:
         text = event.text.strip()
+        if text == "/tag" or text.startswith("/tag "):
+            return self._handle_tag(event)
         if text.startswith("/standing"):
             return self._handle_standing(event)
         if text.startswith("/admin"):
             return self._handle_admin(event)
         return None
+
+    def _handle_tag(self, event: MessageEvent) -> dict[str, Any]:
+        text = event.text.strip()
+        rest = text[4:].strip()
+        if not rest or rest == "help":
+            return {"help": _TAG_HELP}
+        area, _, args = rest.partition(" ")
+        if area == "admin":
+            return self._handle_admin(_command_event(event, f"/admin {args}".rstrip()))
+        if area == "standing":
+            return self._handle_standing(_command_event(event, f"/standing {args}".rstrip()))
+        if area == "status":
+            if not self._is_admin(_author(event)):
+                return {"error": "permission denied"}
+            return {"status": self.preflight_status()}
+        return {"error": "unknown tag command"}
 
     def _is_admin(self, user: str) -> bool:
         return bool(self.tag.admins) and user in self.tag.admins
@@ -455,7 +603,8 @@ class FeishuTagAdapter(FeishuAdapter):
         if cmd == "clear":
             self.store.clear_chat(chat_id)
             self.store.audit("admin_clear", chat_id, "context cleared")
-            return {"cleared": True}
+            reset = self._reset_gateway_session(event)
+            return {"cleared": True, "session_reset": reset["ok"], "session_reset_reason": reset.get("reason", "")}
         if cmd == "disable":
             self.disable_chat(chat_id)
             return {"disabled": True}
@@ -489,6 +638,78 @@ class FeishuTagAdapter(FeishuAdapter):
     async def send(self, chat_id: str, content: str, reply_to=None, metadata=None) -> Any:
         return await self.engine.send(chat_id, content, reply_to=reply_to, metadata=metadata)
 
+    def _reset_gateway_session(self, event: MessageEvent) -> dict[str, Any]:
+        handler = getattr(self, "_message_handler", None)
+        runner = getattr(handler, "__self__", None)
+        session_store = getattr(runner, "session_store", None)
+        if runner is None or session_store is None or not hasattr(session_store, "reset_session"):
+            reason = "gateway runner unavailable"
+            self.store.audit("hermes_session_reset_skipped", _chat_id(event), reason)
+            return {"ok": False, "reason": reason}
+        source = getattr(event, "source", None)
+        if source is None:
+            reason = "event source unavailable"
+            self.store.audit("hermes_session_reset_skipped", _chat_id(event), reason)
+            return {"ok": False, "reason": reason}
+        try:
+            normalize_source = getattr(runner, "_normalize_source_for_session_key", None)
+            if callable(normalize_source):
+                source = normalize_source(source)
+            session_key_for_source = getattr(runner, "_session_key_for_source", None)
+            if callable(session_key_for_source):
+                session_key = session_key_for_source(source)
+            else:
+                session_key = session_store._generate_session_key(source)
+            if not session_key:
+                raise RuntimeError("empty session key")
+            old_entry = getattr(session_store, "_entries", {}).get(session_key)
+            old_session_id = getattr(old_entry, "session_id", "")
+            self._clear_gateway_session_runtime_state(runner, session_key)
+            new_entry = session_store.reset_session(session_key)
+            if new_entry is None and hasattr(session_store, "get_or_create_session"):
+                new_entry = session_store.get_or_create_session(source, force_new=True)
+            new_session_id = getattr(new_entry, "session_id", "")
+            detail = json.dumps(
+                {"session_key": session_key, "old_session_id": old_session_id, "new_session_id": new_session_id},
+                ensure_ascii=False,
+            )
+            self.store.audit("hermes_session_reset", _chat_id(event), detail)
+            return {"ok": bool(new_entry), "reason": "" if new_entry else "session entry unavailable", "session_key": session_key, "old_session_id": old_session_id, "new_session_id": new_session_id}
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            self.store.audit("hermes_session_reset_failed", _chat_id(event), reason)
+            return {"ok": False, "reason": reason}
+
+    def _clear_gateway_session_runtime_state(self, runner: Any, session_key: str) -> None:
+        for name, args in (
+            ("_invalidate_session_run_generation", (session_key,)),
+            ("_release_running_agent_state", (session_key,)),
+            ("_evict_cached_agent", (session_key,)),
+            ("_clear_session_boundary_security_state", (session_key,)),
+        ):
+            method = getattr(runner, name, None)
+            if callable(method):
+                try:
+                    if name == "_invalidate_session_run_generation":
+                        method(*args, reason="tag_admin_clear")
+                    else:
+                        method(*args)
+                except Exception:
+                    pass
+        set_reasoning = getattr(runner, "_set_session_reasoning_override", None)
+        if callable(set_reasoning):
+            try:
+                set_reasoning(session_key, None)
+            except Exception:
+                pass
+        for attr in ("_queued_events", "_session_model_overrides", "_pending_model_notes"):
+            value = getattr(runner, attr, None)
+            if hasattr(value, "pop"):
+                try:
+                    value.pop(session_key, None)
+                except Exception:
+                    pass
+
     def retention_table(self) -> dict[str, str]:
         return {
             "Tier-0": f"physical delete after {self.tag.tier0_ttl_seconds}s or {self.tag.tier0_max_count} messages",
@@ -512,7 +733,7 @@ def _thread_id(event: MessageEvent) -> str | None:
 
 
 def _is_mentioned(event: MessageEvent, config: FeishuTagConfig) -> bool:
-    if event.is_command():
+    if getattr(getattr(event, "source", None), "chat_type", "") == "dm":
         return True
     bot_open_id = config.bot_open_id
     for mention in _event_mentions(event):
@@ -539,11 +760,48 @@ def _copy_event(event: MessageEvent) -> MessageEvent:
     return copied
 
 
+def _command_event(event: MessageEvent, text: str) -> MessageEvent:
+    copied = _copy_event(event)
+    copied.text = text
+    return copied
+
+
 def _event_mentions(event: MessageEvent) -> list[Any]:
     raw = getattr(event, "raw_message", None)
     if raw is None:
         return []
-    return list(getattr(raw, "mentions", None) or (raw.get("mentions", []) if isinstance(raw, dict) else []))
+    mentions = getattr(event, "mentions", None)
+    if mentions:
+        return list(mentions)
+    for candidate in (raw, _raw_feishu_message(event)):
+        if candidate is None:
+            continue
+        found = getattr(candidate, "mentions", None) or (candidate.get("mentions", []) if isinstance(candidate, dict) else [])
+        if found:
+            return list(found)
+    return []
+
+
+def _raw_feishu_message(event: MessageEvent) -> Any | None:
+    raw = getattr(event, "raw_message", None)
+    if raw is None:
+        return None
+    message = _get_nested(raw, "event", "message") or _get_nested(raw, "message") or raw
+    if isinstance(message, dict):
+        return SimpleNamespace(**message)
+    return message
+
+
+def _get_nested(value: Any, *path: str) -> Any | None:
+    current = value
+    for name in path:
+        if current is None:
+            return None
+        if isinstance(current, dict):
+            current = current.get(name)
+        else:
+            current = getattr(current, name, None)
+    return current
 
 
 def _result_text(result: Any) -> str:
@@ -570,4 +828,4 @@ def _unlink_all(paths: list[str]) -> None:
         Path(path).unlink(missing_ok=True)
 
 
-__all__ = ["FeishuTagAdapter", "FeishuTagConfig", "FeishuTagStore", "HermesCronAPI", "MessageEvent", "PlatformConfig", "register", "check_requirements", "assert_real_seams"]
+__all__ = ["FeishuTagAdapter", "FeishuTagConfig", "FeishuTagStore", "HermesCronAPI", "MessageEvent", "PlatformConfig", "register", "check_requirements", "assert_real_seams", "apply_yaml_config"]
