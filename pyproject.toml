@@ -1,12 +1,12 @@
 [project]
-name = "hermes-plugin-feishu-tag"
+name = "hermes-tag"
 version = "0.2.0"
 description = "Hermes Feishu tag platform plugin"
 requires-python = ">=3.11"
 dependencies = []
 
 [project.entry-points."hermes_agent.plugins"]
-feishu-tag = "hermes_plugin_feishu:register"
+hermes-tag = "hermes_tag:register"
 
 [project.optional-dependencies]
 hermes = [

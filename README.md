@@ -1,4 +1,4 @@
-# Feishu Tag
+# Hermes Tag
 A channel-scoped AI teammate for Feishu/Lark group chats, on the Hermes agent framework. @-mention it in a group and it answers in-thread with that chat's own memory and the right context — not your whole history.
 
 [English](README.md) · [中文](README.zh-CN.md)
@@ -10,13 +10,13 @@ A channel-scoped AI teammate for Feishu/Lark group chats, on the Hermes agent fr
 
 ## Why / What
 
-Feishu Tag is a claude-tag-style Feishu/Lark plugin for Hermes: like Anthropic's Claude Tag, or Dust / Glean in Slack — but for Feishu/Lark. It overrides Hermes's built-in Feishu platform; it is not a new Hermes platform.
+Hermes Tag is a claude-tag-style Feishu/Lark plugin for Hermes: like Anthropic's Claude Tag, or Dust / Glean in Slack — but for Feishu/Lark. It overrides Hermes's built-in Feishu platform; it is not a new Hermes platform.
 
 Each enabled chat gets one shared agent identity. The agent answers only when @-mentioned, and long-term memory is built only from those @-mention interactions, so one chat's working memory does not become your whole account history.
 
 The `ContextSelector` chooses bounded evidence with `focused_reply`, `deictic_recent`, and `plain` scopes instead of dumping the transcript. That means no full-history RAG and no ambient auto-answering; admins keep audit and lifecycle control over retained memory.
 
-This repository is `hermes-plugin-feishu`; the Python/pip package and manifest name are `hermes-plugin-feishu-tag`.
+This repository is `hermes-tag`; the Python/pip package and manifest name are `hermes-tag`.
 
 ## Security & Risk Warnings (Read Before Use)
 
@@ -43,13 +43,13 @@ These pins are a project convention; Hermes has no enforced compatibility mechan
 ## Quickstart (<60s)
 
 ```bash
-hermes plugins install DanielLi202/hermes-plugin-feishu
+hermes plugins install DanielLi202/hermes-tag
 ```
 
 ```yaml
 plugins:
   enabled:
-    - hermes-plugin-feishu-tag
+    - hermes-tag
 platforms:
   feishu:
     require_mention: false   # so unmentioned group messages reach the adapter for Tier-0 context
@@ -87,12 +87,12 @@ In groups, `/tag` commands require @-mention.
 
 ## Project Structure
 
-- `src/hermes_plugin_feishu/core.py` — config, sqlite store, TagEngine, PlatformSeam.
-- `src/hermes_plugin_feishu/context.py` — ContextSelector: the bounded-evidence selector.
-- `src/hermes_plugin_feishu/base.py` — TagAdapterMixin: the platform-agnostic orchestration.
-- `src/hermes_plugin_feishu/platforms/feishu.py` — Feishu binding: mention detection, media fetch/download, registration.
-- `src/hermes_plugin_feishu/i18n.py` — locale strings.
-- `src/hermes_plugin_feishu/adapter.py` — back-compat re-export shim.
+- `src/hermes_tag/core.py` — config, sqlite store, TagEngine, PlatformSeam.
+- `src/hermes_tag/context.py` — ContextSelector: the bounded-evidence selector.
+- `src/hermes_tag/base.py` — TagAdapterMixin: the platform-agnostic orchestration.
+- `src/hermes_tag/platforms/feishu.py` — Feishu binding: mention detection, media fetch/download, registration.
+- `src/hermes_tag/i18n.py` — locale strings.
+- `src/hermes_tag/adapter.py` — back-compat re-export shim.
 
 The platform-agnostic base plus narrow seam means new platforms (Slack is planned) are a thin add.
 
@@ -100,4 +100,4 @@ The platform-agnostic base plus narrow seam means new platforms (Slack is planne
 
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
-- License: MIT, lidongyuan.
+- License: MIT, DanielLi202.

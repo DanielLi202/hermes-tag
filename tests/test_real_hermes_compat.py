@@ -21,7 +21,7 @@ class RealHermesCompatTest(unittest.TestCase):
             import sys
             sys.path.insert(0, {str(hermes_root)!r})
             sys.path.insert(0, {str(Path(__file__).resolve().parents[1] / "src")!r})
-            import hermes_plugin_feishu.adapter as mod
+            import hermes_tag.adapter as mod
 
             class Ctx:
                 def __init__(self):

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
-from hermes_plugin_feishu import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig
+from hermes_tag import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig
 
 
 def source(chat="chat-a", user="Alice"):
@@ -180,7 +180,7 @@ class StandingPrivacyV2Test(unittest.TestCase):
         self.assertNotIn("SECRET_TOKEN full body",audit)
 
     def test_no_duplicate_disable_or_detached_weekly_helper(self):
-        import hermes_plugin_feishu.adapter as m
+        import hermes_tag.adapter as m
         src=inspect.getsource(m.FeishuTagAdapter)
         self.assertEqual(src.count("def disable_chat"),1)
         self.assertNotIn("next" + "_weekly" + "_fire",src)

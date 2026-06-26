@@ -6,7 +6,7 @@ Date: 2026-06-26
 
 ## Background
 
-The Feishu Tag plugin already restores the default Hermes Feishu gateway path,
+The Hermes Tag plugin already restores the default Hermes Feishu gateway path,
 supports approved group allowlists, records short-lived Tier-0 group context,
 and can use replied or recent image messages for vision requests.
 

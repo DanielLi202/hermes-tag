@@ -16,7 +16,7 @@
 
 ## Real seam alignment
 
-- Directory-plugin entrypoint is root `__init__.py`, which exposes `register(ctx)` and delegates to `hermes_plugin_feishu.register`.
+- Directory-plugin entrypoint is root `__init__.py`, which exposes `register(ctx)` and delegates to `hermes_tag.register`.
 - `register(ctx)` calls `ctx.register_platform(name="feishu", adapter_factory=...)` using supported parameters only.
 - Runtime adapter subclasses the real Hermes Feishu adapter, preferring `plugins.platforms.feishu.adapter.FeishuAdapter` and falling back to `gateway.platforms.feishu.FeishuAdapter` only for older installs.
 - `register(ctx)` preserves the base Feishu registry contract: config validation, YAML config bridge, allowlist envs, cron delivery env, standalone sender, update command, and message length.
@@ -62,7 +62,7 @@ Environment:
 - Pilot group chat ID: `oc_...` (redacted)
 - Plugin DB: `~/.hermes/profiles/shiling-pm/feishu-tag.sqlite3`
 - Gateway logs: `~/.hermes/profiles/shiling-pm/logs/gateway.log`
-- Installed plugin path: `~/.hermes/plugins/hermes-plugin-feishu-tag`
+- Installed plugin path: `~/.hermes/plugins/hermes-tag`
 
 Live checks completed:
 

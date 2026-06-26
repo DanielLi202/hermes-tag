@@ -234,7 +234,7 @@ def apply_yaml_config(yaml_cfg: dict, feishu_cfg: dict) -> dict | None:
 def register(ctx: Any) -> None:
     ctx.register_platform(
         name="feishu",
-        label="Feishu Tag",
+        label="Hermes Tag",
         adapter_factory=adapter_factory,
         check_fn=check_requirements,
         is_connected=_is_connected,

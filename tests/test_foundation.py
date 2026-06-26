@@ -8,8 +8,8 @@ import unittest
 
 os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
-import hermes_plugin_feishu.adapter as mod
-from hermes_plugin_feishu import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig, TagEngine, adapter_factory, assert_real_seams, register
+import hermes_tag.adapter as mod
+from hermes_tag import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig, TagEngine, adapter_factory, assert_real_seams, register
 
 
 def temp_config(**kw):
@@ -105,7 +105,7 @@ class FoundationV2Test(unittest.TestCase):
         self.assertIn("super()._dispatch_inbound_event", src)
 
     def test_core_does_not_import_feishu_adapter_module(self):
-        text=Path("src/hermes_plugin_feishu/core.py").read_text()
+        text=Path("src/hermes_tag/core.py").read_text()
         self.assertNotIn("from .adapter import", text)
         self.assertNotIn("FeishuTag", text)
 

@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for the Feishu Tag plugin
+about: Suggest an idea for the Hermes Tag plugin
 labels: enhancement
 ---
 

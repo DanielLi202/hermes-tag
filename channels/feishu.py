@@ -1,3 +1,3 @@
-from hermes_plugin_feishu import FeishuTagAdapter, adapter_factory, register
+from hermes_tag import FeishuTagAdapter, adapter_factory, register
 
 __all__ = ["FeishuTagAdapter", "adapter_factory", "register"]

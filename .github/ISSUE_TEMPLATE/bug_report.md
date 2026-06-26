@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with the Feishu Tag plugin
+about: Report a problem with the Hermes Tag plugin
 labels: bug
 ---
 

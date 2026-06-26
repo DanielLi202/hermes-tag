@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
-from hermes_plugin_feishu import FeishuTagConfig, FeishuTagStore, MessageEvent, TagEngine
-from hermes_plugin_feishu.core import author_of, chat_id_of, copy_event, thread_id_of
+from hermes_tag import FeishuTagConfig, FeishuTagStore, MessageEvent, TagEngine
+from hermes_tag.core import author_of, chat_id_of, copy_event, thread_id_of
 
 
 def cfg(**kw):

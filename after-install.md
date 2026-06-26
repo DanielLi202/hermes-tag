@@ -1,4 +1,4 @@
-# Feishu Tag after install
+# Hermes Tag after install
 
 Hermes installs this plugin by cloning the repo; it does not install Python dependencies from `pyproject.toml`.
 
@@ -16,7 +16,7 @@ Set these in the same environment as Hermes:
 ```yaml
 plugins:
   enabled:
-    - hermes-plugin-feishu-tag
+    - hermes-tag
 
 platforms:
   feishu:

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
-from hermes_plugin_feishu import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig
+from hermes_tag import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig
 
 
 def source(chat="chat-a", user="Alice", thread=None):

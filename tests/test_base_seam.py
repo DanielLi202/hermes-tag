@@ -10,8 +10,8 @@ from typing import Any
 
 os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
-from hermes_plugin_feishu.base import TagAdapterMixin
-from hermes_plugin_feishu.core import TagConfig
+from hermes_tag.base import TagAdapterMixin
+from hermes_tag.core import TagConfig
 
 
 @dataclass
@@ -68,7 +68,7 @@ setattr(FakePlatformAdapter, "_fetch_" + "reply" + "_media_refs", _fake_fetch_re
 
 class BaseSeamTest(unittest.TestCase):
     def test_tag_engine_handle_message_enhances_then_dispatches_without_feishu_import(self):
-        script = "import sys; import hermes_plugin_feishu.base; print(('hermes_plugin_feishu.platforms.' + 'feishu') in sys.modules)"
+        script = "import sys; import hermes_tag.base; print(('hermes_tag.platforms.' + 'feishu') in sys.modules)"
         result = subprocess.run([sys.executable, "-c", script], env={**os.environ, "PYTHONPATH": "src"}, text=True, capture_output=True, check=True)
         self.assertEqual(result.stdout.strip(), "False")
 

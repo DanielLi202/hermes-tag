@@ -7,6 +7,6 @@ _src = Path(__file__).with_name("src")
 if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
-from hermes_plugin_feishu import register  # noqa: E402
+from hermes_tag import register  # noqa: E402
 
 __all__ = ["register"]

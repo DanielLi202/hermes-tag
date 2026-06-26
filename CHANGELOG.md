@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Renamed the plugin to `hermes-tag` (package `hermes_tag`, manifest name `hermes-tag`, label "Hermes Tag"); the overridden platform remains `feishu`.
 - Refactored the plugin around a platform-agnostic `TagAdapterMixin`, narrowing the per-platform seam.
 - Cleaned repository hygiene by removing the stray `:memory:` artifact and relocating internal design documents to `docs/design/`.
 
