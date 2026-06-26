@@ -213,6 +213,42 @@ class Tier0ContextV2Test(unittest.TestCase):
         self.assertIn(incoming.name, out.media_urls)
         self.assertTrue(any("p1-img1" in path for path in out.media_urls))
 
+    def test_focused_reply_reanchors_to_triggering_message(self):
+        a=MediaAdapter(PlatformConfig(), cfg())
+        a.parent_messages={"p1":{"media_refs":[{"kind":"image","key":"img1"}]}}
+        ev=event("这是什么","m1",user="Alice",at=True,reply="p1")
+        ev.source.thread_id="t1"
+        asyncio.run(a._dispatch_inbound_event(ev))
+        out=a.dispatched[-1]
+        self.assertIsNone(out.reply_to_message_id)          # answer re-anchored off the parent
+        self.assertEqual(ev.reply_to_message_id,"p1")       # original event untouched
+        self.assertIn("p1", out.source_message_ids)         # parent kept as evidence provenance
+
+    def test_focused_reply_on_text_parent_suppresses_recent_media(self):
+        a=MediaAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        incoming.write(b"image-bytes"); incoming.close()
+        img=event("Bob image","b1",user="Bob")
+        img.media_urls=[incoming.name]; img.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(img))
+        a.parent_messages={"p1":{"media_refs":[]}}          # text-only parent, no media to fetch
+        asyncio.run(a._dispatch_inbound_event(event("看看","m1",user="Alice",at=True,reply="p1")))
+        out=a.dispatched[-1]
+        self.assertEqual(out.media_urls,[])                 # explicit reply still narrows: no recent media
+        audits=[r for r in a.store.audit_events("chat-a") if r["event"]=="enhance_event"]
+        self.assertEqual(json.loads(audits[-1]["detail"])["scope"],"focused_reply")
+
+    def test_deictic_media_recorded_in_provenance(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        img=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        img.write(b"image-bytes"); img.close()
+        e=event("an image","i1",user="Alice")
+        e.media_urls=[img.name]; e.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(e))
+        asyncio.run(a._dispatch_inbound_event(event("上面这张图是什么","ask",user="Alice",at=True)))
+        out=a.dispatched[-1]
+        self.assertIn("i1", out.source_message_ids)         # the image used as evidence is traceable
+
     def test_budget_keeps_current_before_background(self):
         a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=30))
         asyncio.run(a._dispatch_inbound_event(event("long bg"*20,"a1")))

@@ -62,10 +62,12 @@ def deixis(text: str) -> dict | None:
 
 
 class ContextSelector:
-    def select(self, event: Any, *, parent_present: bool, recent_rows, memory_rows) -> ContextPack:
+    def select(self, event: Any, *, recent_rows, memory_rows) -> ContextPack:
+        # focused_reply is triggered by an explicit user reply, NOT by whether parent media
+        # downloaded — a text/failed/preview-only parent must still narrow the evidence set.
         candidates = [self._candidate(event, row) for row in recent_rows]
         excluded: list[tuple[str, str]] = []
-        if getattr(event, "reply_to_message_id", None) and parent_present:
+        if getattr(event, "reply_to_message_id", None):
             for candidate in candidates:
                 excluded.append((candidate.message_id, "focused_reply:anchor"))
             return ContextPack("focused_reply", True, [], [], list(memory_rows), excluded)

@@ -400,7 +400,6 @@ class FeishuTagAdapter(FeishuAdapter):
         memory_rows = self.store.relevant_tier1(event)
         pack = ContextSelector().select(
             event,
-            parent_present=bool(parent_paths),
             recent_rows=recent_rows,
             memory_rows=memory_rows,
         )
@@ -410,14 +409,27 @@ class FeishuTagAdapter(FeishuAdapter):
         )
         background = [self._format_l2_row(row) for row in pack.text_rows] + media_notes
         memories = [f"memory(owner={row['owner']}): {row['summary']}" for row in pack.memory_rows]
+        explicit_reply_id = getattr(event, "reply_to_message_id", None)
+        source_ids = _dedupe(
+            [row["message_id"] for row in pack.text_rows]
+            + [row["message_id"] for row in pack.media_rows]
+            + ([explicit_reply_id] if explicit_reply_id else [])
+        )
         enhanced = _copy_event(event)
         enhanced.media_urls = list(event.media_urls) + parent_urls + related_media_urls
         enhanced.media_types = list(event.media_types) + parent_types + related_media_types
         enhanced.channel_context = self._budget_context(event.text, placeholders, background, memories)
         setattr(enhanced, "tier1_context", memories)
         setattr(enhanced, "l2_context", background)
-        setattr(enhanced, "source_message_ids", [row["message_id"] for row in pack.text_rows])
+        setattr(enhanced, "source_message_ids", source_ids)
         setattr(enhanced, "task_session_id", f"{_chat_id(event)}:{event.message_id}")
+        # ponytail: Feishu anchors a reply under the quoted parent only when reply_to_message_id is set
+        # (upstream gateway base.py:105); clear it on the dispatched copy so the answer threads under the
+        # triggering message, while the parent stays captured as evidence (media + source_message_ids).
+        # Only reply_to_message_id is touched (a copied scalar) — source is shared, so we never mutate it.
+        reanchored = bool(explicit_reply_id)
+        if reanchored:
+            enhanced.reply_to_message_id = None
         self.store.audit(
             "enhance_event",
             _chat_id(event),
@@ -427,6 +439,7 @@ class FeishuTagAdapter(FeishuAdapter):
                     "scope": pack.scope,
                     "has_explicit_anchor": pack.has_explicit_anchor,
                     "reply_target": event.message_id,
+                    "reanchored": reanchored,
                     "media_by_source": {
                         "current": len(getattr(event, "media_urls", []) or []),
                         "parent": len(parent_urls),
@@ -934,6 +947,16 @@ def _normalize_schedule(schedule: str) -> str:
 def _unlink_all(paths: list[str]) -> None:
     for path in paths:
         Path(path).unlink(missing_ok=True)
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
 
 
 __all__ = ["FeishuTagAdapter", "FeishuTagConfig", "FeishuTagStore", "HermesCronAPI", "MessageEvent", "PlatformConfig", "register", "check_requirements", "assert_real_seams", "apply_yaml_config"]
