@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import tempfile
 import unittest
@@ -98,6 +99,119 @@ class Tier0ContextV2Test(unittest.TestCase):
         self.assertIn("image/png", out.media_types)
         self.assertIn("[media message: 1 attachment(s)]", out.channel_context)
         self.assertIn("[related media from img1: 1 attachment(s)]", out.channel_context)
+
+    def test_plain_mention_attaches_no_recent_media(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        incoming.write(b"image-bytes"); incoming.close()
+        img=event("Bob image","b1",user="Bob")
+        img.media_urls=[incoming.name]
+        img.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(img))
+
+        asyncio.run(a._dispatch_inbound_event(event("项目进度如何","a1",user="Alice",at=True)))
+        out=a.dispatched[-1]
+        self.assertEqual(out.media_urls,[])
+        self.assertEqual(out.media_types,[])
+        self.assertIn("Bob: Bob image", out.channel_context)
+
+    def test_deictic_singular_attaches_only_nearest_image(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        old=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        old.write(b"old"); old.close()
+        older=event("old image","old",user="Alice")
+        older.media_urls=[old.name]; older.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(older))
+        new=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        new.write(b"new"); new.close()
+        newer=event("new image","new",user="Alice")
+        newer.media_urls=[new.name]; newer.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(newer))
+        rows={r["message_id"]:json.loads(r["media_paths"])[0] for r in a.store.tier0_rows("chat-a")}
+
+        asyncio.run(a._dispatch_inbound_event(event("上面这张图是什么","ask",user="Alice",at=True)))
+        out=a.dispatched[-1]
+        self.assertEqual(out.media_urls,[rows["new"]])
+        self.assertNotIn(rows["old"], out.media_urls)
+
+    def test_deictic_plural_attaches_multiple(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        first=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        first.write(b"1"); first.close()
+        e1=event("first image","i1",user="Alice")
+        e1.media_urls=[first.name]; e1.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(e1))
+        second=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        second.write(b"2"); second.close()
+        e2=event("second image","i2",user="Alice")
+        e2.media_urls=[second.name]; e2.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(e2))
+        paths={r["message_id"]:json.loads(r["media_paths"])[0] for r in a.store.tier0_rows("chat-a")}
+
+        asyncio.run(a._dispatch_inbound_event(event("这几张图分别是什么","ask",user="Alice",at=True)))
+        out=a.dispatched[-1]
+        self.assertEqual(set(out.media_urls),{paths["i1"],paths["i2"]})
+        self.assertLessEqual(len(out.media_urls),3)
+
+    def test_channel_memory_is_text_never_media(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        a.store.write_tier1("chat-a","deadline stays Friday","Alice","m0","Alice",["m0"])
+        asyncio.run(a._dispatch_inbound_event(event("项目进度如何","a1",user="Alice",at=True)))
+        out=a.dispatched[-1]
+        self.assertIn("memory(owner=Alice): deadline stays Friday", out.channel_context)
+        self.assertEqual(out.media_urls,[])
+
+    def test_focused_reply_excludes_unrelated_l2_media(self):
+        a=MediaAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        incoming.write(b"image-bytes"); incoming.close()
+        img_ev=event("", "b1", user="Bob")
+        img_ev.media_urls=[incoming.name]
+        img_ev.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(img_ev))
+        rows=a.store.tier0_rows("chat-a")
+        stored_paths=__import__("json").loads(rows[-1]["media_paths"])
+        self.assertEqual(len(stored_paths),1)
+        self.assertTrue(stored_paths[0].startswith(str(a.media_cache_dir)))
+        self.assertTrue(os.path.exists(stored_paths[0]))
+
+        a.parent_messages={"p1":{"media_refs":[{"kind":"image","key":"img1"}]}}
+        asyncio.run(a._dispatch_inbound_event(event("see this", "m1", user="Alice", at=True, reply="p1")))
+        out=a.dispatched[-1]
+        self.assertEqual(len(out.media_urls),1)
+        self.assertIn("p1-img1", out.media_urls[0])
+        self.assertNotIn(stored_paths[0], out.media_urls)
+
+    def test_audit_records_scope_and_exclusions(self):
+        a=MediaAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        incoming.write(b"image-bytes"); incoming.close()
+        img_ev=event("", "b1", user="Bob")
+        img_ev.media_urls=[incoming.name]
+        img_ev.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(img_ev))
+
+        a.parent_messages={"p1":{"media_refs":[{"kind":"image","key":"img1"}]}}
+        asyncio.run(a._dispatch_inbound_event(event("see this", "m1", user="Alice", at=True, reply="p1")))
+        audits=[row for row in a.store.audit_events("chat-a") if row["event"]=="enhance_event"]
+        detail=json.loads(audits[-1]["detail"])
+        self.assertEqual(detail["scope"],"focused_reply")
+        excluded={item["id"]:item["reason"] for item in detail["excluded"]}
+        self.assertEqual(excluded["b1"],"focused_reply:anchor")
+
+    def test_focused_reply_keeps_user_attached_media(self):
+        a=MediaAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        a.parent_messages={"p1":{"media_refs":[{"kind":"image","key":"img1"}]}}
+        incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        incoming.write(b"image-bytes"); incoming.close()
+        ask=event("compare these", "m2", user="Alice", at=True, reply="p1")
+        ask.media_urls=[incoming.name]
+        ask.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(ask))
+        out=a.dispatched[-1]
+        self.assertEqual(len(out.media_urls),2)
+        self.assertIn(incoming.name, out.media_urls)
+        self.assertTrue(any("p1-img1" in path for path in out.media_urls))
 
     def test_budget_keeps_current_before_background(self):
         a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=30))

@@ -154,29 +154,6 @@ class TagStore:
         with self.lock:
             return list(self.conn.execute("SELECT * FROM tier0_messages WHERE chat_id=? ORDER BY created_at", (chat_id,)))
 
-    def related_tier0(self, event: Any, limit: int = 8) -> list[sqlite3.Row]:
-        chat_id = chat_id_of(event)
-        author = author_of(event)
-        thread = thread_id_of(event) or event.reply_to_message_id
-        with self.lock:
-            rows = self.tier0_rows(chat_id)
-        def score(row: sqlite3.Row) -> tuple[int, float]:
-            if row["message_id"] == event.message_id:
-                return (-999, row["created_at"])
-            s = 0
-            if thread and row["thread_id"] == thread:
-                s += 10
-            if author and row["author"] == author:
-                s += 5
-            if "那个截图" in event.text and json.loads(row["media_paths"] or "[]"):
-                s += 3
-            return s, row["created_at"]
-        ranked = [r for r in sorted(rows, key=score, reverse=True) if score(r)[0] > 0]
-        if ranked:
-            return ranked[:limit]
-        recent = [r for r in rows if r["message_id"] != event.message_id]
-        return list(reversed(recent))[:limit]
-
     def evict_tier0(self, chat_id: str, ttl_seconds: int, max_count: int) -> int:
         with self.lock:
             victims = list(self.conn.execute("SELECT * FROM tier0_messages WHERE chat_id=? AND created_at < ?", (chat_id, time.time() - ttl_seconds)))

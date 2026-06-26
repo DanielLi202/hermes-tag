@@ -54,7 +54,7 @@ class DemoSeam:
 
     async def enhance_event(self, event):
         enhanced=copy_event(event)
-        rows=self.store.related_tier0(event)
+        rows=[r for r in self.store.tier0_rows(chat_id_of(event)) if r["message_id"]!=event.message_id]
         enhanced.channel_context="\n".join([f"current: {event.text}"]+[f"{r['author']}: {r['text']}" for r in rows])
         setattr(enhanced, "source_message_ids", [r["message_id"] for r in rows])
         return enhanced, []

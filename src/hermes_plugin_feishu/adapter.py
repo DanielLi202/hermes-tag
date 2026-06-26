@@ -127,6 +127,7 @@ except Exception:  # local tests / scaffold path
         })()
 
 
+from .context import ContextSelector
 from .core import TagConfig as FeishuTagConfig, TagEngine, TagStore as FeishuTagStore
 
 
@@ -389,26 +390,33 @@ class FeishuTagAdapter(FeishuAdapter):
             self.store.audit("tier0_insert", _chat_id(event), detail)
 
     async def _enhance_event(self, event: MessageEvent) -> tuple[MessageEvent, list[str]]:
-        media_urls, media_types, placeholders, paths = await self._load_reply_media(event)
+        parent_urls, parent_types, placeholders, parent_paths = await self._load_reply_media(event)
         orphan_paths: list[str] = []
-        if paths and self.tag.has_group_msg_scope:
-            self.store.set_tier0_media_paths(_chat_id(event), event.message_id or "", paths)
-        elif paths:
-            orphan_paths.extend(paths)
-        l2_rows = self.store.related_tier0(event) if self.tag.has_group_msg_scope else []
-        related_media_urls, related_media_types, media_notes = self._related_media_from_rows(
-            l2_rows,
-            list(event.media_urls) + media_urls,
+        if parent_paths and self.tag.has_group_msg_scope:
+            self.store.set_tier0_media_paths(_chat_id(event), event.message_id or "", parent_paths)
+        elif parent_paths:
+            orphan_paths.extend(parent_paths)
+        recent_rows = [r for r in self.store.tier0_rows(_chat_id(event)) if r["message_id"] != event.message_id] if self.tag.has_group_msg_scope else []
+        memory_rows = self.store.relevant_tier1(event)
+        pack = ContextSelector().select(
+            event,
+            parent_present=bool(parent_paths),
+            recent_rows=recent_rows,
+            memory_rows=memory_rows,
         )
-        background = [self._format_l2_row(row) for row in l2_rows] + media_notes
-        memories = [f"memory(owner={row['owner']}): {row['summary']}" for row in self.store.relevant_tier1(event)]
+        related_media_urls, related_media_types, media_notes = self._related_media_from_rows(
+            pack.media_rows,
+            list(event.media_urls) + parent_urls,
+        )
+        background = [self._format_l2_row(row) for row in pack.text_rows] + media_notes
+        memories = [f"memory(owner={row['owner']}): {row['summary']}" for row in pack.memory_rows]
         enhanced = _copy_event(event)
-        enhanced.media_urls = list(event.media_urls) + media_urls + related_media_urls
-        enhanced.media_types = list(event.media_types) + media_types + related_media_types
+        enhanced.media_urls = list(event.media_urls) + parent_urls + related_media_urls
+        enhanced.media_types = list(event.media_types) + parent_types + related_media_types
         enhanced.channel_context = self._budget_context(event.text, placeholders, background, memories)
         setattr(enhanced, "tier1_context", memories)
         setattr(enhanced, "l2_context", background)
-        setattr(enhanced, "source_message_ids", [row["message_id"] for row in l2_rows])
+        setattr(enhanced, "source_message_ids", [row["message_id"] for row in pack.text_rows])
         setattr(enhanced, "task_session_id", f"{_chat_id(event)}:{event.message_id}")
         self.store.audit(
             "enhance_event",
@@ -416,10 +424,18 @@ class FeishuTagAdapter(FeishuAdapter):
             json.dumps(
                 {
                     "message_id": event.message_id,
-                    "l2_count": len(background),
+                    "scope": pack.scope,
+                    "has_explicit_anchor": pack.has_explicit_anchor,
+                    "reply_target": event.message_id,
+                    "media_by_source": {
+                        "current": len(getattr(event, "media_urls", []) or []),
+                        "parent": len(parent_urls),
+                        "related": len(related_media_urls),
+                    },
+                    "selected_text_ids": [row["message_id"] for row in pack.text_rows],
+                    "selected_media_ids": [row["message_id"] for row in pack.media_rows],
+                    "excluded": [{"id": message_id, "reason": reason} for message_id, reason in pack.excluded],
                     "tier1_count": len(memories),
-                    "source_message_ids": [row["message_id"] for row in l2_rows],
-                    "related_media_count": len(related_media_urls),
                     "context_preview": enhanced.channel_context[:240],
                 },
                 ensure_ascii=False,
