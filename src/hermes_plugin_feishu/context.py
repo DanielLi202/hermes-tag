@@ -5,28 +5,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .i18n import DEICTIC_MARKERS, PLURAL_DEICTIC_MARKERS, all_locale_markers
+
 THREAD_MATCH_WEIGHT = 10
 AUTHOR_MATCH_WEIGHT = 5
 DEICTIC_MEDIA_CAP_SINGULAR = 1
 DEICTIC_MEDIA_CAP_PLURAL = 3
 TEXT_BACKGROUND_LIMIT = 8
 
-DEICTIC_MARKERS = (
-    "上面",
-    "上图",
-    "这张图",
-    "那张图",
-    "这张截图",
-    "那个截图",
-    "这个截图",
-    "刚刚",
-    "刚才",
-    "前面那条",
-    "前面那张",
-    "这条",
-    "那条",
-)
-PLURAL_DEICTIC_MARKERS = ("这几张", "那几张", "这些图", "那些图", "前面几张", "几张图")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic"}
 
 
@@ -55,8 +41,8 @@ class ContextPack:
 def deixis(text: str) -> dict | None:
     # ponytail: keyword heuristic; swap for a classifier if precision matters.
     value = text or ""
-    plural = any(marker in value for marker in PLURAL_DEICTIC_MARKERS)
-    if plural or any(marker in value for marker in DEICTIC_MARKERS):
+    plural = any(marker in value for marker in all_locale_markers(PLURAL_DEICTIC_MARKERS))
+    if plural or any(marker in value for marker in all_locale_markers(DEICTIC_MARKERS)):
         return {"present": True, "plural": plural}
     return None
 
