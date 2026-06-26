@@ -35,14 +35,17 @@ _TAG_HELP = [
 
 
 class HermesCronAPI:
+    def __init__(self, platform: str = "feishu") -> None:
+        self.platform = platform
+
     def create(self, *, chat_id: str, description: str, schedule: str, timezone_name: str) -> str:
         from cron.jobs import create_job
         job = create_job(
             prompt=description,
             schedule=schedule,
             name=description[:50],
-            deliver="feishu",
-            origin={"platform": "feishu", "chat_id": chat_id, "timezone": timezone_name},
+            deliver=self.platform,
+            origin={"platform": self.platform, "chat_id": chat_id, "timezone": timezone_name},
         )
         return str(job["id"])
 
@@ -94,7 +97,7 @@ class TagAdapterMixin:
         self.store = FeishuTagStore(self.tag.db_path)
         self.media_cache_dir = Path(self.tag.media_cache_dir or f"{self.tag.db_path}.media")
         self.media_cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cron_api = cron_api or HermesCronAPI()
+        self.cron_api = cron_api or HermesCronAPI(self.platform_name)
         self.pending_jobs: dict[tuple[str, str], dict[str, str]] = {}
         self.notified_chats: set[str] = set()
         assert_real_seams(self, self.cron_api)
