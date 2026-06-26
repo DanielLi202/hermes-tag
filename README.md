@@ -1,6 +1,8 @@
 # Feishu Tag
 A channel-scoped AI teammate for Feishu/Lark group chats, on the Hermes agent framework. @-mention it in a group and it answers in-thread with that chat's own memory and the right context — not your whole history.
 
+[English](README.md) · [中文](README.zh-CN.md)
+
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Version: 0.2.0](https://img.shields.io/badge/version-0.2.0-blue.svg) ![hermes-agent: v2026.6.19](https://img.shields.io/badge/hermes--agent-v2026.6.19-blue.svg) ![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 
 <!-- TODO: add docs/demo.gif — sanitized @-mention -> focused_reply clip -->
