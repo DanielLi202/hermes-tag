@@ -22,9 +22,18 @@ _FEISHU_EXPORTS = {
     "PlatformConfig",
     "adapter_factory",
     "check_requirements",
-    "register",
 }
 
+
+def register(ctx):
+    from .platforms.feishu import register as _register_feishu
+    _register_feishu(ctx)
+    try:
+        from .platforms.slack import register as _register_slack
+        _register_slack(ctx)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("hermes-tag: slack platform registration skipped", exc_info=True)
 
 def __getattr__(name: str):
     if name in _FEISHU_EXPORTS:
