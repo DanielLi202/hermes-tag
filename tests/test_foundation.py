@@ -1,103 +1,130 @@
+import importlib.util
+import inspect
 import os
+from pathlib import Path
 import stat
 import tempfile
 import unittest
 
-from hermes_plugin_feishu import FeishuTagAdapter, FeishuTagConfig, register_plugin
+import hermes_plugin_feishu.adapter as mod
+from hermes_plugin_feishu import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig, TagEngine, adapter_factory, assert_real_seams, register
 
 
-class BaseFeishu:
-    def __init__(self):
-        self.handled = []
+def temp_config(**kw):
+    tmp = tempfile.NamedTemporaryFile(delete=False); tmp.close(); os.unlink(tmp.name)
+    data = {"enabled_chats":["chat-a"],"bot_app_id":"bot","bot_open_id":"bot-open","db_path":tmp.name,"media_cache_dir":tmp.name+".media","granted_scopes":["im:message.group_msg"],"encryption_posture":"plain","admins":["Alice"]}
+    data.update(kw)
+    return FeishuTagConfig.from_platform_config(data)
 
-    def handle_message(self, event):
-        self.handled.append(event)
-        return "handled"
+def source(chat="chat-a", user="Alice"):
+    return type("S", (), {"chat_id":chat,"user_id":user,"user_name":user,"thread_id":None})()
 
-    def send_message(self, chat_id, text):
-        return {"chat_id": chat_id, "text": text}
+class Ctx:
+    def __init__(self): self.calls=[]
+    def register_platform(self, name, label, adapter_factory, check_fn, validate_config=None, required_env=None, install_hint="", **entry_kwargs):
+        self.calls.append({"name":name,"label":label,"adapter_factory":adapter_factory,"check_fn":check_fn,"required_env":required_env,"install_hint":install_hint,"entry_kwargs":entry_kwargs})
 
+class FoundationV2Test(unittest.TestCase):
+    def test_register_uses_supported_real_register_platform_signature(self):
+        ctx=Ctx(); register(ctx)
+        call=ctx.calls[0]
+        self.assertEqual(call["name"], "feishu")
+        self.assertIn("required_env", call)
+        self.assertIn("emoji", call["entry_kwargs"])
+        self.assertFalse(hasattr(mod,"register" + "_plugin"))
 
-class Registry:
-    def __init__(self):
-        self.factories = {}
+    def test_factory_falls_back_when_tag_unconfigured_or_disabled(self):
+        self.assertNotIsInstance(adapter_factory(PlatformConfig()), FeishuTagAdapter)
+        disabled=PlatformConfig({"feishu_tag":{"enabled":False}})
+        self.assertNotIsInstance(adapter_factory(disabled), FeishuTagAdapter)
 
-    def register(self, name, factory):
-        self.factories[name] = factory
+    def test_factory_enables_only_with_valid_tag_config(self):
+        cfg=temp_config()
+        enabled=PlatformConfig({"feishu_tag":{"enabled":True,"enabled_chats":["chat-a"],"bot_open_id":"bot-open","db_path":cfg.db_path,"media_cache_dir":cfg.media_cache_dir,"encryption_posture":"plain"}})
+        self.assertIsInstance(adapter_factory(enabled), FeishuTagAdapter)
 
+    def test_plugin_manifest_uses_official_directory_fields_only(self):
+        text=Path("plugin.yaml").read_text(encoding="utf-8")
+        self.assertIn("manifest_version: 1", text)
+        self.assertIn("requires_env:", text)
+        for invalid in ("entrypoint:", "hermes_version:", "hermes_tag:", "hermes_commit:", "lark_oapi_version:", "platform:"):
+            self.assertNotIn(invalid, text)
 
-class FoundationTest(unittest.TestCase):
-    def cfg(self, **kw):
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp.close()
-        os.unlink(tmp.name)
-        data = {
-            "enabled_chats": ["chat-a"],
-            "bot_app_id": "cli_test_bot",
-            "db_path": tmp.name,
-            "granted_scopes": ["im:message"],
-            "encryption_posture": "plaintext test db",
-        }
-        data.update(kw)
-        return FeishuTagConfig.from_dict(data)
+    def test_root_directory_plugin_entrypoint_exposes_register(self):
+        spec=importlib.util.spec_from_file_location("hermes_tag_root", "__init__.py")
+        root=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(root)
+        self.assertIs(root.register, register)
 
-    def test_registers_feishu_override_factory(self):
-        reg = Registry()
-        factory = register_plugin(reg, BaseFeishu(), self.cfg())
-        self.assertIs(reg.factories["feishu"], factory)
-        self.assertIsInstance(factory(), FeishuTagAdapter)
-
-    def test_base_seam_mismatch_fails_loudly(self):
-        class BadBase:
-            def handle_message(self):
-                pass
-            def send_message(self, chat_id, text):
-                pass
+    def test_send_selfcheck_requires_async_content_signature(self):
+        a=FeishuTagAdapter(PlatformConfig(), temp_config())
+        assert_real_seams(a)
+        class TextSend:
+            async def _dispatch_inbound_event(self, event): pass
+            async def _download_feishu_image(self, *, message_id, image_key): pass
+            async def _download_feishu_message_resource(self, *, message_id, file_key, resource_type, fallback_filename=""): pass
+            async def send(self, chat_id, text, reply_to=None, metadata=None): pass
         with self.assertRaisesRegex(RuntimeError, "signature mismatch"):
-            FeishuTagAdapter(BadBase(), self.cfg())
+            assert_real_seams(TextSend())
+        class SyncSend:
+            async def _dispatch_inbound_event(self, event): pass
+            async def _download_feishu_image(self, *, message_id, image_key): pass
+            async def _download_feishu_message_resource(self, *, message_id, file_key, resource_type, fallback_filename=""): pass
+            def send(self, chat_id, content, reply_to=None, metadata=None): pass
+        with self.assertRaisesRegex(RuntimeError, "must be async"):
+            assert_real_seams(SyncSend())
 
-        class ExtraArgBase(BaseFeishu):
-            def handle_message(self, event, extra):
-                return "bad"
+    def test_production_feishu_path_uses_shared_tag_engine(self):
+        a=FeishuTagAdapter(PlatformConfig(), temp_config())
+        self.assertIsInstance(a.engine, TagEngine)
+        self.assertIs(a.pending_tier1, a.engine.pending)
+        src=inspect.getsource(mod.FeishuTagAdapter._dispatch_inbound_event)
+        self.assertIn("self.engine.handle_message", src)
+        self.assertNotIn("super()._dispatch_inbound_event", src)
 
-        with self.assertRaisesRegex(RuntimeError, "signature mismatch"):
-            FeishuTagAdapter(ExtraArgBase(), self.cfg())
+    def test_core_does_not_import_feishu_adapter_module(self):
+        text=Path("src/hermes_plugin_feishu/core.py").read_text()
+        self.assertNotIn("from .adapter import", text)
+        self.assertNotIn("FeishuTag", text)
 
-    def test_non_enabled_chat_is_dropped_without_processing_or_storage(self):
-        base = BaseFeishu()
-        adapter = FeishuTagAdapter(base, self.cfg(granted_scopes=["im:message.group_msg"]))
-        self.assertIsNone(adapter.handle_message({"chat_id": "other", "message_id": "m1", "text": "secret"}))
-        self.assertEqual(base.handled, [])
-        self.assertEqual(adapter.store.count_tier0("other"), 0)
-        self.assertEqual(adapter.preflight_status()["metrics"]["admission_dropped"], 1)
+    def test_single_pilot_chat_and_db_0600(self):
+        cfg=temp_config(); FeishuTagAdapter(PlatformConfig(), cfg)
+        self.assertEqual(stat.S_IMODE(os.stat(cfg.db_path).st_mode),0o600)
+        with self.assertRaisesRegex(ValueError,"exactly one"): temp_config(enabled_chats=[])
+        with self.assertRaisesRegex(ValueError,"exactly one"): temp_config(enabled_chats=["a","b"])
 
-    def test_without_group_msg_scope_disables_tier0_l2_but_keeps_tier1(self):
-        adapter = FeishuTagAdapter(BaseFeishu(), self.cfg(granted_scopes=["im:message"] ))
-        caps = adapter.preflight_status()["capabilities"]
-        self.assertFalse(caps["tier0_full_ingest"])
-        self.assertFalse(caps["l2_context"])
-        self.assertTrue(caps["tier1_at_memory"])
+    def test_non_enabled_chat_is_dropped_without_storage(self):
+        a=FeishuTagAdapter(PlatformConfig(), temp_config())
+        import asyncio
+        self.assertIsNone(asyncio.run(a._dispatch_inbound_event(MessageEvent("hi", source=source("other"), message_id="m1"))))
+        self.assertEqual(a.store.count_tier0("other"),0)
+        self.assertEqual(a.preflight_status()["metrics"]["admission_dropped"],1)
 
-    def test_db_is_0600_and_pilot_chat_count_is_enforced(self):
-        cfg = self.cfg()
-        FeishuTagAdapter(BaseFeishu(), cfg)
-        mode = stat.S_IMODE(os.stat(cfg.db_path).st_mode)
-        self.assertEqual(mode, 0o600)
-        with self.assertRaisesRegex(ValueError, "exactly one"):
-            self.cfg(enabled_chats=[])
-        with self.assertRaisesRegex(ValueError, "exactly one"):
-            self.cfg(enabled_chats=["a", "b"])
-        with self.assertRaisesRegex(ValueError, "exactly one"):
-            FeishuTagConfig(("a", "b"), "bot", cfg.db_path, frozenset(), "plaintext")
+    def test_receive_all_still_self_gates_unmentioned_messages(self):
+        a=FeishuTagAdapter(PlatformConfig(), temp_config(require_mention=False))
+        import asyncio
+        self.assertIsNone(asyncio.run(a._dispatch_inbound_event(MessageEvent("ambient", source=source(), raw_message={"mentions":[]}, message_id="m1"))))
+        self.assertEqual(a.store.count_tier0("chat-a"),1)
+        self.assertEqual(a.dispatched,[])
 
-    def test_preflight_exposes_boundary_bot_and_encryption_posture(self):
-        status = FeishuTagAdapter(BaseFeishu(), self.cfg()).preflight_status()
-        self.assertEqual(status["adapter"], "FeishuTagAdapter")
-        self.assertEqual(status["bot_app_id"], "cli_test_bot")
-        self.assertEqual(status["enabled_chats"], ["chat-a"])
-        self.assertIn("not the receive boundary", status["boundary"])
-        self.assertTrue(status["encryption_posture"])
+    def test_without_group_msg_degrades_l2_but_keeps_tier1(self):
+        caps=FeishuTagAdapter(PlatformConfig(), temp_config(granted_scopes=[])).preflight_status()["capabilities"]
+        self.assertFalse(caps["tier0_full_ingest"]); self.assertFalse(caps["l2_context"]); self.assertTrue(caps["tier1_at_memory"])
 
+    def test_v2_forbidden_event_fields_absent_in_tests(self):
+        for path in Path("tests").glob("test_*.py"):
+            text=path.read_text()
+            self.assertNotIn("." + "mentioned", text)
+            self.assertNotIn("reply" + "_media_refs", text)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_repair_evidence_records_live_smoke_blocker(self):
+        text=Path("docs/repair-evidence.md").read_text(encoding="utf-8")
+        self.assertIn("R4 live smoke is blocked", text)
+
+    def test_after_install_documents_receive_all_and_no_brick_fallback(self):
+        text=Path("after-install.md").read_text(encoding="utf-8")
+        self.assertIn("require_mention: false", text)
+        self.assertIn("extra.feishu_tag.enabled: true", text)
+        self.assertIn("falls back", text)
+
+if __name__ == "__main__": unittest.main()

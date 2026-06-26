@@ -1,4 +1,10 @@
+manifest_version: 1
 name: hermes-plugin-feishu-tag
-platform: feishu
-hermes_version: "0.1.0"
-entrypoint: hermes_plugin_feishu:register_plugin
+label: Feishu Tag
+kind: platform
+version: 0.2.0
+description: Feishu platform override with per-chat Tier-0/Tier-1 context, standing work, and privacy lifecycle controls.
+author: lidongyuan
+requires_env:
+  - FEISHU_APP_ID
+  - FEISHU_APP_SECRET
