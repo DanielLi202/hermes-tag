@@ -6,8 +6,10 @@ import importlib
 from pathlib import Path
 import inspect
 import json
+import mimetypes
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import time
@@ -269,10 +271,19 @@ class FeishuTagAdapter(FeishuAdapter):
         assert_real_seams(self, self.cron_api)
         self.engine = TagEngine(self.tag, self.store, self)
         self.pending_tier1 = self.engine.pending
-        self.store.audit("startup", self.tag.pilot_chat_id, BOUNDARY_TEXT)
+        for chat_id in self.tag.enabled_chats:
+            self.store.audit("startup", chat_id, BOUNDARY_TEXT)
 
     def preflight_status(self) -> dict[str, Any]:
         chat_id = self.tag.pilot_chat_id
+        chat_metrics = {
+            enabled_chat_id: {
+                "tier0_rows": self.store.count_tier0(enabled_chat_id),
+                "tier1_memories": self.store.count_tier1(enabled_chat_id),
+                "standing_jobs": self.store.count_standing_jobs(enabled_chat_id),
+            }
+            for enabled_chat_id in self.tag.enabled_chats
+        }
         return {
             "adapter": type(self).__name__,
             "hermes_tag": HERMES_TAG,
@@ -304,6 +315,7 @@ class FeishuTagAdapter(FeishuAdapter):
                 "media_download_failure": self.store.metric("media_download_failure"),
                 "degraded_no_group_msg": 0 if self.tag.has_group_msg_scope else 1,
                 "standing_jobs": self.store.count_standing_jobs(chat_id),
+                "enabled_chat_metrics": chat_metrics,
                 "override_selfcheck_ok": 1,
             },
             "retention": self.retention_table(),
@@ -354,13 +366,14 @@ class FeishuTagAdapter(FeishuAdapter):
         self._write_tier1_memory(event, enhanced, result)
 
     def store_tier0(self, event: MessageEvent, media_paths: list[str] | None = None) -> None:
+        stored_media_paths = media_paths if media_paths is not None else self._persist_event_media(event)
         inserted = self.store.insert_tier0(
             chat_id=_chat_id(event),
             message_id=event.message_id or "",
             text=event.text,
             author=_author(event),
             thread_id=_thread_id(event) or event.reply_to_message_id,
-            media_paths=media_paths,
+            media_paths=stored_media_paths,
         )
         if inserted:
             detail = json.dumps(
@@ -369,6 +382,7 @@ class FeishuTagAdapter(FeishuAdapter):
                     "author": _author(event),
                     "thread_id": _thread_id(event) or event.reply_to_message_id,
                     "text_chars": len(event.text or ""),
+                    "media_count": len(stored_media_paths or []),
                 },
                 ensure_ascii=False,
             )
@@ -382,11 +396,15 @@ class FeishuTagAdapter(FeishuAdapter):
         elif paths:
             orphan_paths.extend(paths)
         l2_rows = self.store.related_tier0(event) if self.tag.has_group_msg_scope else []
-        background = [f"{row['author']}: {row['text']}" for row in l2_rows]
+        related_media_urls, related_media_types, media_notes = self._related_media_from_rows(
+            l2_rows,
+            list(event.media_urls) + media_urls,
+        )
+        background = [self._format_l2_row(row) for row in l2_rows] + media_notes
         memories = [f"memory(owner={row['owner']}): {row['summary']}" for row in self.store.relevant_tier1(event)]
         enhanced = _copy_event(event)
-        enhanced.media_urls = list(event.media_urls) + media_urls
-        enhanced.media_types = list(event.media_types) + media_types
+        enhanced.media_urls = list(event.media_urls) + media_urls + related_media_urls
+        enhanced.media_types = list(event.media_types) + media_types + related_media_types
         enhanced.channel_context = self._budget_context(event.text, placeholders, background, memories)
         setattr(enhanced, "tier1_context", memories)
         setattr(enhanced, "l2_context", background)
@@ -401,12 +419,86 @@ class FeishuTagAdapter(FeishuAdapter):
                     "l2_count": len(background),
                     "tier1_count": len(memories),
                     "source_message_ids": [row["message_id"] for row in l2_rows],
+                    "related_media_count": len(related_media_urls),
                     "context_preview": enhanced.channel_context[:240],
                 },
                 ensure_ascii=False,
             ),
         )
         return enhanced, orphan_paths
+
+    def _persist_event_media(self, event: MessageEvent) -> list[str]:
+        paths: list[str] = []
+        media_urls = list(getattr(event, "media_urls", []) or [])
+        media_types = list(getattr(event, "media_types", []) or [])
+        for idx, value in enumerate(media_urls[: self.tag.max_reply_media_items]):
+            source = Path(str(value))
+            if not source.exists() or not source.is_file():
+                continue
+            try:
+                size = source.stat().st_size
+                if size > self.tag.max_reply_media_bytes:
+                    continue
+                try:
+                    source.relative_to(self.media_cache_dir)
+                    paths.append(str(source))
+                    continue
+                except ValueError:
+                    pass
+                suffix = source.suffix or mimetypes.guess_extension(media_types[idx] if idx < len(media_types) else "") or ".bin"
+                message_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", event.message_id or "message")
+                dest = self.media_cache_dir / f"{message_id}-{idx}{suffix}"
+                shutil.copy2(source, dest)
+                os.chmod(dest, 0o600)
+                paths.append(str(dest))
+            except Exception:
+                self.store.inc("media_download_failure")
+        return paths
+
+    def _related_media_from_rows(self, rows: list[Any], existing_paths: list[str]) -> tuple[list[str], list[str], list[str]]:
+        urls: list[str] = []
+        types: list[str] = []
+        notes: list[str] = []
+        used_bytes = 0
+        seen = {str(path) for path in existing_paths}
+        for row in rows:
+            try:
+                row_paths = json.loads(row["media_paths"] or "[]")
+            except Exception:
+                row_paths = []
+            attached_for_row = 0
+            for value in row_paths:
+                if len(urls) >= self.tag.max_reply_media_items:
+                    break
+                path = str(value)
+                if path in seen:
+                    continue
+                file_path = Path(path)
+                if not file_path.exists() or not file_path.is_file():
+                    continue
+                size = file_path.stat().st_size
+                if used_bytes + size > self.tag.max_reply_media_bytes:
+                    continue
+                seen.add(path)
+                urls.append(path)
+                types.append(mimetypes.guess_type(path)[0] or "file")
+                used_bytes += size
+                attached_for_row += 1
+            if attached_for_row:
+                notes.append(f"[related media from {row['message_id']}: {attached_for_row} attachment(s)]")
+        return urls, types, notes
+
+    def _format_l2_row(self, row: Any) -> str:
+        try:
+            media_count = len(json.loads(row["media_paths"] or "[]"))
+        except Exception:
+            media_count = 0
+        text = row["text"] or ""
+        if media_count and not text:
+            text = f"[media message: {media_count} attachment(s)]"
+        elif media_count:
+            text = f"{text} [media: {media_count} attachment(s)]"
+        return f"{row['author']}: {text}"
 
 
     async def _fetch_parent_media_refs(self, message_id: str) -> list[dict[str, str]]:

@@ -109,11 +109,25 @@ class FoundationV2Test(unittest.TestCase):
         self.assertNotIn("from .adapter import", text)
         self.assertNotIn("FeishuTag", text)
 
-    def test_single_pilot_chat_and_db_0600(self):
+    def test_enabled_chats_require_at_least_one_and_db_0600(self):
         cfg=temp_config(); FeishuTagAdapter(PlatformConfig(), cfg)
         self.assertEqual(stat.S_IMODE(os.stat(cfg.db_path).st_mode),0o600)
-        with self.assertRaisesRegex(ValueError,"exactly one"): temp_config(enabled_chats=[])
-        with self.assertRaisesRegex(ValueError,"exactly one"): temp_config(enabled_chats=["a","b"])
+        with self.assertRaisesRegex(ValueError,"at least one"): temp_config(enabled_chats=[])
+        multi=temp_config(enabled_chats=["chat-a","chat-b"])
+        self.assertEqual(multi.pilot_chat_id, "chat-a")
+
+    def test_multiple_enabled_chats_are_admitted_and_counted_separately(self):
+        a=FeishuTagAdapter(PlatformConfig(), temp_config(enabled_chats=["chat-a","chat-b"], require_mention=False))
+        import asyncio
+        self.assertIsNone(asyncio.run(a._dispatch_inbound_event(MessageEvent("background", source=source("chat-b"), raw_message={"mentions":[]}, message_id="m-b1"))))
+        self.assertEqual(a.store.count_tier0("chat-a"),0)
+        self.assertEqual(a.store.count_tier0("chat-b"),1)
+        self.assertEqual(a.store.count_tier0("other"),0)
+        self.assertEqual(a.dispatched,[])
+        metrics=a.preflight_status()["metrics"]["enabled_chat_metrics"]
+        self.assertEqual(metrics["chat-a"]["tier0_rows"],0)
+        self.assertEqual(metrics["chat-b"]["tier0_rows"],1)
+        self.assertEqual([row["chat_id"] for row in a.store.audit_events() if row["event"] == "startup"], ["chat-a","chat-b"])
 
     def test_non_enabled_chat_passthrough_without_storage(self):
         a=FeishuTagAdapter(PlatformConfig(), temp_config())

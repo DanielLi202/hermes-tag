@@ -78,6 +78,27 @@ class Tier0ContextV2Test(unittest.TestCase):
         asyncio.run(a._dispatch_inbound_event(event("when is the deadline","a1",user="Alice",at=True)))
         self.assertIn("Bob: deadline is Friday", a.dispatched[-1].channel_context)
 
+    def test_l2_attaches_previous_media_message_without_feishu_reply(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        incoming.write(b"image-bytes"); incoming.close()
+        image_event=event("", "img1", user="Alice")
+        image_event.media_urls=[incoming.name]
+        image_event.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(image_event))
+        rows=a.store.tier0_rows("chat-a")
+        stored_paths=__import__("json").loads(rows[-1]["media_paths"])
+        self.assertEqual(len(stored_paths),1)
+        self.assertTrue(stored_paths[0].startswith(str(a.media_cache_dir)))
+        self.assertTrue(os.path.exists(stored_paths[0]))
+
+        asyncio.run(a._dispatch_inbound_event(event("上面这张图片是什么内容","ask1",user="Alice",at=True)))
+        out=a.dispatched[-1]
+        self.assertIn(stored_paths[0], out.media_urls)
+        self.assertIn("image/png", out.media_types)
+        self.assertIn("[media message: 1 attachment(s)]", out.channel_context)
+        self.assertIn("[related media from img1: 1 attachment(s)]", out.channel_context)
+
     def test_budget_keeps_current_before_background(self):
         a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=30))
         asyncio.run(a._dispatch_inbound_event(event("long bg"*20,"a1")))

@@ -30,8 +30,8 @@ class TagConfig:
     tier1_pending_ttl_seconds: int = 3600
 
     def __post_init__(self) -> None:
-        if len(self.enabled_chats) != 1:
-            raise ValueError("single pilot requires exactly one enabled_chats chat_id")
+        if not self.enabled_chats:
+            raise ValueError("enabled_chats requires at least one chat_id")
         if not self.encryption_posture.strip():
             raise ValueError("encryption_posture must be declared")
 
@@ -313,10 +313,21 @@ class TagEngine:
         self.pending: dict[str, tuple[float, Any, Any]] = {}
 
     def preflight_status(self) -> dict[str, Any]:
+        chat_metrics = {
+            chat_id: {
+                "tier0_rows": self.store.count_tier0(chat_id),
+                "tier1_memories": self.store.count_tier1(chat_id),
+            }
+            for chat_id in self.tag.enabled_chats
+        }
         return {
             "platform": self.seam.platform_name,
             "capabilities": {"receive_all": self.seam.receive_all, "cron_delivery": self.seam.cron_delivery},
-            "metrics": {"tier0_rows": self.store.count_tier0(self.tag.pilot_chat_id), "tier1_memories": self.store.count_tier1(self.tag.pilot_chat_id)},
+            "metrics": {
+                "tier0_rows": self.store.count_tier0(self.tag.pilot_chat_id),
+                "tier1_memories": self.store.count_tier1(self.tag.pilot_chat_id),
+                "enabled_chat_metrics": chat_metrics,
+            },
         }
 
     async def handle_message(self, event: Any) -> Any:

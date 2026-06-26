@@ -25,7 +25,8 @@ platforms:
       feishu_tag:
         enabled: true
         enabled_chats:
-          - oc_xxx_single_pilot_chat
+          - oc_xxx_pilot_chat
+          - oc_xxx_second_pilot_chat
         bot_open_id: ou_xxx_bot_open_id
         granted_scopes:
           - im:message.group_msg
@@ -42,7 +43,7 @@ The plugin also accepts the legacy top-level `extra.feishu_tag` shape and bridge
 - `im:message.group_msg` is required for receive-all Tier-0/L2 behavior.
 - If that scope is missing, unmentioned background context degrades; @-driven Tier-1 memory still works.
 - Tell pilot groups: all messages in `enabled_chats` may be stored locally for short-term context; only @ interactions create long-term memory.
-- Use a single pilot chat until R5 scope approval and retention review are complete.
+- Add every approved pilot chat to `enabled_chats`; keep non-approved groups out of this list so their traffic passes through without plugin storage.
 
 ## Onboarding and live verification
 
@@ -71,6 +72,7 @@ profile and Feishu IDs.
            enabled: true
            enabled_chats:
              - CHAT_ID
+             # Add one line per approved pilot group.
            bot_open_id: BOT_OPEN_ID
            granted_scopes:
              - im:message.group_msg
