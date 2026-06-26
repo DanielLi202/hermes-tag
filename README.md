@@ -63,7 +63,7 @@ platforms:
         encryption_posture: plaintext-db-on-local-disk
 ```
 
-Full onboarding + live verification: see [docs/onboarding.md](docs/onboarding.md).
+Full onboarding + live verification: see [after-install.md](after-install.md).
 
 ## Usage
 

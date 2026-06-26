@@ -63,7 +63,7 @@ platforms:
         encryption_posture: plaintext-db-on-local-disk
 ```
 
-完整安装与线上验证：见 [docs/onboarding.md](docs/onboarding.md)。
+完整安装与线上验证：见 [after-install.md](after-install.md)。
 
 ## 使用
 

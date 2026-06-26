@@ -175,7 +175,7 @@ class FoundationV2Test(unittest.TestCase):
         self.assertIn("R4 live smoke is blocked", text)
 
     def test_after_install_documents_receive_all_and_no_brick_fallback(self):
-        text=Path("docs/onboarding.md").read_text(encoding="utf-8")
+        text=Path("after-install.md").read_text(encoding="utf-8")
         self.assertIn("require_mention: false", text)
         self.assertIn("feishu_tag:", text)
         self.assertIn("enabled: true", text)
