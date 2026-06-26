@@ -221,8 +221,32 @@ class Tier0ContextV2Test(unittest.TestCase):
         asyncio.run(a._dispatch_inbound_event(ev))
         out=a.dispatched[-1]
         self.assertIsNone(out.reply_to_message_id)          # answer re-anchored off the parent
+        self.assertIsNone(out.source.thread_id)              # Feishu must not create/send into the reply thread
         self.assertEqual(ev.reply_to_message_id,"p1")       # original event untouched
+        self.assertEqual(ev.source.thread_id,"t1")           # source object was cloned before thread cleanup
         self.assertIn("p1", out.source_message_ids)         # parent kept as evidence provenance
+
+    def test_thread_only_quote_reanchors_to_main_chat_and_keeps_anchor_media(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        incoming.write(b"image-bytes"); incoming.close()
+        img=event("", "img1", user="Alice")
+        img.media_urls=[incoming.name]; img.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(img))
+
+        ask=event("这张图片是什么内容","m1",user="Alice",at=True)
+        ask.source.thread_id="img1"
+        asyncio.run(a._dispatch_inbound_event(ask))
+        out=a.dispatched[-1]
+        self.assertIsNone(out.reply_to_message_id)
+        self.assertIsNone(out.source.thread_id)
+        self.assertEqual(ask.source.thread_id,"img1")
+        self.assertIn("img1", out.source_message_ids)
+        self.assertEqual(len(out.media_urls),1)
+        audits=[r for r in a.store.audit_events("chat-a") if r["event"]=="enhance_event"]
+        detail=json.loads(audits[-1]["detail"])
+        self.assertEqual(detail["scope"],"focused_reply")
+        self.assertTrue(detail["reanchored"])
 
     def test_focused_reply_on_text_parent_suppresses_recent_media(self):
         a=MediaAdapter(PlatformConfig(), cfg(max_context_chars=500))

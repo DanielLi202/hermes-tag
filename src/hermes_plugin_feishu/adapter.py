@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+import copy
+from dataclasses import dataclass, field, is_dataclass, replace
 import importlib
 from pathlib import Path
 import inspect
@@ -410,10 +411,11 @@ class FeishuTagAdapter(FeishuAdapter):
         background = [self._format_l2_row(row) for row in pack.text_rows] + media_notes
         memories = [f"memory(owner={row['owner']}): {row['summary']}" for row in pack.memory_rows]
         explicit_reply_id = getattr(event, "reply_to_message_id", None)
+        explicit_anchor_id = explicit_reply_id or _thread_id(event)
         source_ids = _dedupe(
             [row["message_id"] for row in pack.text_rows]
             + [row["message_id"] for row in pack.media_rows]
-            + ([explicit_reply_id] if explicit_reply_id else [])
+            + ([explicit_anchor_id] if explicit_anchor_id else [])
         )
         enhanced = _copy_event(event)
         enhanced.media_urls = list(event.media_urls) + parent_urls + related_media_urls
@@ -423,13 +425,13 @@ class FeishuTagAdapter(FeishuAdapter):
         setattr(enhanced, "l2_context", background)
         setattr(enhanced, "source_message_ids", source_ids)
         setattr(enhanced, "task_session_id", f"{_chat_id(event)}:{event.message_id}")
-        # ponytail: Feishu anchors a reply under the quoted parent only when reply_to_message_id is set
-        # (upstream gateway base.py:105); clear it on the dispatched copy so the answer threads under the
-        # triggering message, while the parent stays captured as evidence (media + source_message_ids).
-        # Only reply_to_message_id is touched (a copied scalar) — source is shared, so we never mutate it.
-        reanchored = bool(explicit_reply_id)
+        # ponytail: Feishu routes quoted replies through reply_to_message_id and/or source.thread_id.
+        # Clear both on the dispatched copy so the answer returns to the main chat; keep the parent
+        # captured as evidence through media/context/source_message_ids.
+        reanchored = bool(explicit_anchor_id)
         if reanchored:
             enhanced.reply_to_message_id = None
+            enhanced.source = _source_without_thread(getattr(enhanced, "source", None))
         self.store.audit(
             "enhance_event",
             _chat_id(event),
@@ -957,6 +959,19 @@ def _dedupe(items: list[str]) -> list[str]:
             seen.add(item)
             result.append(item)
     return result
+
+
+def _source_without_thread(source: Any) -> Any:
+    if source is None or getattr(source, "thread_id", None) is None:
+        return source
+    try:
+        if is_dataclass(source):
+            return replace(source, thread_id=None)
+        cloned = copy.copy(source)
+        setattr(cloned, "thread_id", None)
+        return cloned
+    except Exception:
+        return source
 
 
 __all__ = ["FeishuTagAdapter", "FeishuTagConfig", "FeishuTagStore", "HermesCronAPI", "MessageEvent", "PlatformConfig", "register", "check_requirements", "assert_real_seams", "apply_yaml_config"]

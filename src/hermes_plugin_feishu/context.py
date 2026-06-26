@@ -67,10 +67,25 @@ class ContextSelector:
         # downloaded — a text/failed/preview-only parent must still narrow the evidence set.
         candidates = [self._candidate(event, row) for row in recent_rows]
         excluded: list[tuple[str, str]] = []
-        if getattr(event, "reply_to_message_id", None):
+        anchor_id = getattr(event, "reply_to_message_id", None) or self._thread_id(event)
+        if anchor_id:
+            anchor = str(anchor_id)
+            anchor_candidates = [
+                candidate
+                for candidate in candidates
+                if candidate.message_id == anchor or str(candidate.row["thread_id"] or "") == anchor
+            ]
             for candidate in candidates:
-                excluded.append((candidate.message_id, "focused_reply:anchor"))
-            return ContextPack("focused_reply", True, [], [], list(memory_rows), excluded)
+                if candidate not in anchor_candidates:
+                    excluded.append((candidate.message_id, "focused_reply:anchor"))
+            return ContextPack(
+                "focused_reply",
+                True,
+                [candidate.row for candidate in anchor_candidates],
+                [candidate.row for candidate in anchor_candidates if self._has_media(candidate.row)],
+                list(memory_rows),
+                excluded,
+            )
 
         marker = deixis(getattr(event, "text", "") or "")
         if marker:
