@@ -14,7 +14,7 @@ from typing import Any
 
 from .context import ContextSelector
 from .core import TagConfig as FeishuTagConfig, TagEngine, TagStore as FeishuTagStore
-from .i18n import ENABLE_NOTICE
+from .i18n import ENABLE_NOTICE, PROMPT_CONTRACT
 
 HERMES_TAG = "v2026.6.19"
 HERMES_COMMIT = "2bd1977d8fad185c9b4be47884f7e87f1add0ce3"
@@ -22,6 +22,7 @@ LARK_OAPI_VERSION = "1.6.9"
 BOUNDARY_TEXT = "enabled_chats is the storage/processing boundary, not the receive boundary"
 _TAG_HELP = [
     "/tag admin count",
+    "/tag admin audit",
     "/tag admin clear",
     "/tag admin disable",
     "/tag standing add <schedule> <timezone> <description>",
@@ -218,9 +219,13 @@ class TagAdapterMixin:
             pack.media_rows,
             list(event.media_urls) + parent_urls,
         )
-        background = [self._format_l2_row(row) for row in pack.text_rows] + media_notes
-        memories = [f"memory(owner={row['owner']}): {row['summary']}" for row in pack.memory_rows]
         explicit_reply_id = getattr(event, "reply_to_message_id", None)
+        background = [self._format_l2_row(row) for row in pack.text_rows]
+        parent_text = (getattr(event, "reply_to_text", None) or "").strip()
+        if pack.scope == "focused_reply" and parent_text and not any((row["message_id"] == explicit_reply_id or row["text"] == parent_text) for row in pack.text_rows):
+            background.append(f"reply parent: {parent_text}")
+        background += media_notes
+        memories = [f"memory(owner={row['owner']}): {row['summary']}" for row in pack.memory_rows]
         explicit_anchor_id = explicit_reply_id or _thread_id(event)
         if explicit_anchor_id and str(explicit_anchor_id) == str(getattr(event, "message_id", "")):
             # ponytail: Slack top-level messages use their own ts as synthetic thread_id.
@@ -418,7 +423,11 @@ class TagAdapterMixin:
         self.engine._prune_pending()
 
     def _budget_context(self, current: str, media_notes: list[str], background: list[str], memories: list[str]) -> str:
-        pieces = [f"current: {current}"] + media_notes
+        current_piece = f"current: {current}"
+        pieces = [current_piece]
+        if len(current_piece) + 1 + len(PROMPT_CONTRACT) <= self.tag.max_context_chars:
+            pieces.append(PROMPT_CONTRACT)
+        pieces += media_notes
         remaining = self.tag.max_context_chars - sum(len(p) + 1 for p in pieces)
         kept: list[str] = []
         for item in background + memories:
@@ -497,6 +506,8 @@ class TagAdapterMixin:
         cmd = event.text.split(maxsplit=1)[1] if " " in event.text else ""
         if cmd == "count":
             return {"tier0": self.store.count_tier0(chat_id), "tier1": self.store.count_tier1(chat_id), "standing_jobs": self.store.count_standing_jobs(chat_id)}
+        if cmd == "audit":
+            return {"audit": self._redacted_audit_events(chat_id)}
         if cmd == "clear":
             self.store.clear_chat(chat_id)
             self.store.audit("admin_clear", chat_id, "context cleared")
@@ -506,6 +517,27 @@ class TagAdapterMixin:
             self.disable_chat(chat_id)
             return {"disabled": True}
         return {"error": "unknown admin command"}
+
+    def _redacted_audit_events(self, chat_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        for row in self.store.audit_events(chat_id)[-limit:]:
+            item: dict[str, Any] = {"type": row["event"], "created_at": row["created_at"], "chat_id": row["chat_id"]}
+            try:
+                detail = json.loads(row["detail"] or "{}")
+            except Exception:
+                detail = {}
+            if isinstance(detail, dict):
+                for key in ("scope", "tier1_count"):
+                    if key in detail:
+                        item[key] = detail[key]
+                if "selected_text_ids" in detail:
+                    item["selected_text_count"] = len(detail.get("selected_text_ids") or [])
+                if "selected_media_ids" in detail:
+                    item["selected_media_count"] = len(detail.get("selected_media_ids") or [])
+                if "excluded" in detail:
+                    item["excluded_count"] = len(detail.get("excluded") or [])
+            events.append(item)
+        return events
 
     async def enable_chat(self, chat_id: str) -> str:
         notice = ENABLE_NOTICE["zh"]

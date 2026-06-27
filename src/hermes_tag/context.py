@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,18 @@ def deixis(text: str) -> dict | None:
     if plural or any(marker in value for marker in all_locale_markers(DEICTIC_MARKERS)):
         return {"present": True, "plural": plural}
     return None
+
+
+def lexical_relevance(question: str, evidence: str) -> float:
+    q = set(_tokens(question))
+    if not q:
+        return 0.0
+    overlap = len(q & set(_tokens(evidence)))
+    return overlap / (overlap + 1) if overlap else 0.0
+
+
+def _tokens(text: str, limit: int = 64) -> list[str]:
+    return re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", (text or "").lower())[:limit]
 
 
 class ContextSelector:
@@ -124,6 +137,10 @@ class ContextSelector:
         if author and row["author"] == author:
             score += AUTHOR_MATCH_WEIGHT
             reasons.append("author")
+        relevance = lexical_relevance(getattr(event, "text", "") or "", row["text"] or "")
+        if relevance:
+            score += relevance
+            reasons.append("lexical")
         return ContextCandidate(
             source="recent",
             message_id=str(row["message_id"]),

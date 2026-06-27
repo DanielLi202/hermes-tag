@@ -1,5 +1,5 @@
 # Hermes Tag
-飞书 / Lark 群聊的频道级 AI 助手，构建于 Hermes agent 框架之上。在群里 @ 它，它就在对话中回复——只带上这个群自己的记忆和恰当的上下文，而不是你的全部历史。
+用 Hermes 把 claude-tag 式能力带到飞书 / Lark（以及 Slack）。在群里 @ 它，它就带上这个群自己的记忆和恰当上下文回复，而不是你的全部历史。
 
 [English](README.md) · [中文](README.zh-CN.md)
 
@@ -10,9 +10,11 @@
 
 ## 简介
 
-Hermes Tag 是 Hermes 的飞书 / Lark 插件，提供 “claude-tag 式” 的频道级智能体：类似企业微信 / 钉钉里的群内智能助手，也对标 Anthropic 的 Claude Tag（Slack）——但面向飞书 / Lark。它**覆盖** Hermes 内置的飞书平台，而不是新增一个平台。
+Hermes Tag 是 Hermes 的飞书 / Lark 插件，提供 “claude-tag 式” 的频道级智能体：类似企业微信 / 钉钉里的群内智能助手，也对标 Anthropic 的 Claude Tag（Slack）——当前先面向飞书 / Lark，Slack 在路线图中。它**覆盖** Hermes 内置的飞书平台，而不是新增一个平台。
 
 每个启用的群拥有**一个共享的智能体身份**。它只在被 @ 时回复，长期记忆也**只来自这些 @ 互动**，因此单个群的工作记忆不会变成你的全部账号历史。
+
+当前已交付：有界群聊证据、Tier-0/Tier-1 记忆、管理员生命周期控制、脱敏审计。路线图：更完整的 Slack parity，以及更深入的连接器 / 来源绑定能力。
 
 `ContextSelector` 通过 `focused_reply`、`deictic_recent`、`plain` 三种范围选择**有界证据**，而不是把整段聊天记录塞给模型。这意味着没有全量历史 RAG，也不会无人 @ 就自动回复；管理员对保留的记忆拥有审计与生命周期控制。
 

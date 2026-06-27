@@ -57,6 +57,14 @@ class Tier1V2Test(unittest.TestCase):
         self.assertIn("memory(owner=Alice)", a.dispatched[-1].channel_context)
         self.assertIn("decision-m1", a.dispatched[-1].channel_context)
 
+    def test_relevant_tier1_owner_tie_uses_question_relevance_before_recency(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg())
+        a.store.write_tier1("chat-a","question=old; conclusion=deadline is Friday","Alice","old","Alice",["old"])
+        a.store.write_tier1("chat-a","question=new; conclusion=unrelated roadmap note","Alice","new","Alice",["new"])
+        asyncio.run(a._dispatch_inbound_event(ev("when is the deadline","ask")))
+        ctx=a.dispatched[-1].channel_context
+        self.assertLess(ctx.index("deadline is Friday"), ctx.index("unrelated roadmap note"))
+
     def test_tier1_provenance_excludes_unselected_unrelated_message(self):
         a=FeishuTagAdapter(PlatformConfig(), cfg())
         asyncio.run(a._dispatch_inbound_event(ev("Bob unrelated","bob",user="Bob",at=False)))

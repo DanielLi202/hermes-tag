@@ -12,6 +12,7 @@ os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
 from hermes_tag.base import TagAdapterMixin
 from hermes_tag.core import TagConfig
+from hermes_tag.i18n import PROMPT_CONTRACT
 
 
 @dataclass
@@ -91,7 +92,7 @@ class BaseSeamTest(unittest.TestCase):
         self.assertEqual(len(adapter.dispatched), 1)
         enhanced = adapter.dispatched[0]
         self.assertIsNot(enhanced, event)
-        self.assertEqual(enhanced.channel_context, "current: hello")
+        self.assertEqual(enhanced.channel_context, "current: hello\n" + PROMPT_CONTRACT)
         self.assertEqual(enhanced.task_session_id, "chat-a:m1")
         self.assertEqual(adapter.store.count_tier0("chat-a"), 1)
 

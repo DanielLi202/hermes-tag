@@ -38,6 +38,11 @@ ENABLE_NOTICE = {
     "en": "All messages in this group, including from members who have never interacted with the bot, are recorded locally and buffered briefly; only relevant messages may enter the model when @ bot is mentioned; long-term memory only comes from @ interactions.",
 }
 
+PROMPT_CONTRACT = (
+    "Use only current and channel_context as evidence; if evidence is missing or weak, say so. "
+    "Do not infer from unrelated chat history."
+)
+
 
 def all_locale_markers(markers: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     return tuple(marker for values in markers.values() for marker in values)

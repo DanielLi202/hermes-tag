@@ -1,13 +1,15 @@
 import asyncio
 import inspect
+import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from types import SimpleNamespace
 
 os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
-from hermes_tag import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig
+from hermes_tag import FeishuTagAdapter, FeishuTagConfig, FeishuTagStore, MessageEvent, PlatformConfig
 
 
 def source(chat="chat-a", user="Alice"):
@@ -138,6 +140,30 @@ class StandingPrivacyV2Test(unittest.TestCase):
         asyncio.run(a._dispatch_inbound_event(ev("/tag admin clear","clear")))
         self.assertEqual(a.sent[-1], ("chat-a", "cleared; session reset"))
         self.assertEqual(a.store.count_tier0("chat-a"),0)
+
+    def test_audit_timestamp_migration_and_admin_audit_redaction(self):
+        tmp=tempfile.NamedTemporaryFile(delete=False); tmp.close(); os.unlink(tmp.name)
+        conn=sqlite3.connect(tmp.name)
+        conn.execute("CREATE TABLE audit_events(id INTEGER PRIMARY KEY, event TEXT NOT NULL, chat_id TEXT, detail TEXT)")
+        conn.commit(); conn.close()
+        store=FeishuTagStore(tmp.name)
+        store.audit("manual","chat-a",json.dumps({"scope":"plain"}))
+        store.close()
+        store=FeishuTagStore(tmp.name)  # idempotent second open
+        row=store.audit_events("chat-a")[-1]
+        self.assertIsNotNone(row["created_at"])
+        store.close()
+
+        a,_=self.adapter()
+        asyncio.run(a._dispatch_inbound_event(ev("SECRET_BODY","bg",at=False)))
+        asyncio.run(a._dispatch_inbound_event(ev("what did I say","ask")))
+        result=asyncio.run(a._dispatch_inbound_event(ev("/tag admin audit","audit")))
+        rendered=a.sent[-1][1]
+        self.assertIn("audit:", rendered)
+        self.assertTrue(any(item["type"]=="enhance_event" and item.get("scope") for item in result["audit"]))
+        self.assertIn("selected_text_count", rendered)
+        self.assertNotIn("context_preview", rendered)
+        self.assertNotIn("SECRET_BODY", rendered)
 
     def test_admin_clear_resets_gateway_session_store(self):
         a,_=self.adapter()

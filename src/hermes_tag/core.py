@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -89,7 +90,7 @@ class TagStore:
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS metrics(name TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0);
-            CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY, event TEXT NOT NULL, chat_id TEXT, detail TEXT);
+            CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY, event TEXT NOT NULL, created_at REAL, chat_id TEXT, detail TEXT);
             CREATE TABLE IF NOT EXISTS tier0_messages(
                 chat_id TEXT NOT NULL, message_id TEXT NOT NULL, text TEXT, author TEXT,
                 thread_id TEXT, created_at REAL NOT NULL, media_paths TEXT NOT NULL DEFAULT '[]',
@@ -106,6 +107,7 @@ class TagStore:
             );
             """
         )
+        self._ensure_audit_created_at()
         self.conn.commit()
 
     def close(self) -> None:
@@ -132,7 +134,7 @@ class TagStore:
 
     def audit(self, event: str, chat_id: str | None = None, detail: str = "") -> None:
         with self.lock:
-            self.conn.execute("INSERT INTO audit_events(event,chat_id,detail) VALUES(?,?,?)", (event, chat_id, detail))
+            self.conn.execute("INSERT INTO audit_events(event,created_at,chat_id,detail) VALUES(?,?,?,?)", (event, time.time(), chat_id, detail))
             self.conn.commit()
 
     def audit_events(self, chat_id: str | None = None) -> list[sqlite3.Row]:
@@ -140,6 +142,11 @@ class TagStore:
             if chat_id is None:
                 return list(self.conn.execute("SELECT * FROM audit_events ORDER BY id"))
             return list(self.conn.execute("SELECT * FROM audit_events WHERE chat_id=? ORDER BY id", (chat_id,)))
+
+    def _ensure_audit_created_at(self) -> None:
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(audit_events)")}
+        if "created_at" not in columns:
+            self.conn.execute("ALTER TABLE audit_events ADD COLUMN created_at REAL")
 
     def insert_tier0(self, *, chat_id: str, message_id: str, text: str, author: str, thread_id: str | None, media_paths: list[str] | None = None, created_at: float | None = None) -> bool:
         with self.lock:
@@ -196,8 +203,9 @@ class TagStore:
 
     def relevant_tier1(self, event: Any, limit: int = 4) -> list[sqlite3.Row]:
         owner = author_of(event)
+        question = getattr(event, "text", "") or ""
         rows = self.tier1_rows(chat_id_of(event))
-        rows.sort(key=lambda r: (r["owner"] == owner, r["created_at"]), reverse=True)
+        rows.sort(key=lambda r: (r["owner"] == owner, _lexical_relevance(question, r["summary"] or ""), r["created_at"]), reverse=True)
         return rows[:limit]
 
     def consolidate_tier1(self, chat_id: str, max_count: int) -> None:
@@ -400,6 +408,17 @@ def format_command_result(result: Any) -> str:
             platform = status.get("platform") or status.get("adapter") or ""
             return f"status platform={platform} {capability_text}\nmetrics {metric_text}".strip()
         return f"status {status}"
+    if "audit" in result:
+        lines = ["audit:"]
+        for item in result.get("audit") or []:
+            if not isinstance(item, dict):
+                continue
+            bits = [f"type={item.get('type', '')}", f"created_at={item.get('created_at', '')}", f"chat_id={item.get('chat_id', '')}"]
+            for key in ("scope", "selected_text_count", "selected_media_count", "excluded_count", "tier1_count"):
+                if key in item:
+                    bits.append(f"{key}={item[key]}")
+            lines.append("- " + " ".join(bits))
+        return "\n".join(lines)
     if {"tier0", "tier1", "standing_jobs"}.issubset(result):
         return f"tier0={result['tier0']} tier1={result['tier1']} standing_jobs={result['standing_jobs']}"
     if result.get("confirmation_required"):
@@ -436,6 +455,18 @@ def author_of(event: Any) -> str:
 
 def thread_id_of(event: Any) -> str | None:
     return getattr(getattr(event, "source", None), "thread_id", None) or getattr(event, "thread_id", None)
+
+
+def _lexical_relevance(question: str, evidence: str) -> float:
+    q = set(_tokens(question))
+    if not q:
+        return 0.0
+    overlap = len(q & set(_tokens(evidence)))
+    return overlap / (overlap + 1) if overlap else 0.0
+
+
+def _tokens(text: str, limit: int = 64) -> list[str]:
+    return re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", (text or "").lower())[:limit]
 
 
 def copy_event(event: Any) -> Any:

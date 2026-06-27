@@ -1,5 +1,5 @@
 # Hermes Tag
-A channel-scoped AI teammate for Feishu/Lark group chats, on the Hermes agent framework. @-mention it in a group and it answers in-thread with that chat's own memory and the right context — not your whole history.
+Use Hermes to bring claude-tag-style capability to your Feishu/Lark (and Slack). @-mention it in a group and it answers with that chat's own memory and the right context — not your whole history.
 
 [English](README.md) · [中文](README.zh-CN.md)
 
@@ -10,9 +10,11 @@ A channel-scoped AI teammate for Feishu/Lark group chats, on the Hermes agent fr
 
 ## Why / What
 
-Hermes Tag is a claude-tag-style Feishu/Lark plugin for Hermes: like Anthropic's Claude Tag, or Dust / Glean in Slack — but for Feishu/Lark. It overrides Hermes's built-in Feishu platform; it is not a new Hermes platform.
+Hermes Tag is a claude-tag-style Feishu/Lark plugin for Hermes: like Anthropic's Claude Tag, or Dust / Glean in Slack — but for Feishu/Lark now, with Slack on the roadmap. It overrides Hermes's built-in Feishu platform; it is not a new Hermes platform.
 
 Each enabled chat gets one shared agent identity. The agent answers only when @-mentioned, and long-term memory is built only from those @-mention interactions, so one chat's working memory does not become your whole account history.
+
+Shipped now: bounded chat evidence, Tier-0/Tier-1 memory, admin lifecycle, and redacted audit. Roadmap: broader Slack parity and deeper connector/source-binding work.
 
 The `ContextSelector` chooses bounded evidence with `focused_reply`, `deictic_recent`, and `plain` scopes instead of dumping the transcript. That means no full-history RAG and no ambient auto-answering; admins keep audit and lifecycle control over retained memory.
 

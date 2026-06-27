@@ -8,6 +8,7 @@ from types import SimpleNamespace
 os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
 from hermes_tag import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig
+from hermes_tag.i18n import PROMPT_CONTRACT
 
 
 def source(chat="chat-a", user="Alice", thread=None):
@@ -78,6 +79,27 @@ class Tier0ContextV2Test(unittest.TestCase):
         asyncio.run(a._dispatch_inbound_event(event("deadline is Friday","b1",user="Bob")))
         asyncio.run(a._dispatch_inbound_event(event("when is the deadline","a1",user="Alice",at=True)))
         self.assertIn("Bob: deadline is Friday", a.dispatched[-1].channel_context)
+
+    def test_prompt_contract_kept_only_after_current_when_it_fits(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        asyncio.run(a._dispatch_inbound_event(event("now","a1",at=True)))
+        ctx=a.dispatched[-1].channel_context
+        self.assertTrue(ctx.startswith("current: now\n" + PROMPT_CONTRACT))
+
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=len("current: now")+5))
+        asyncio.run(a._dispatch_inbound_event(event("now","a1",at=True)))
+        ctx=a.dispatched[-1].channel_context
+        self.assertIn("current: now",ctx)
+        self.assertNotIn(PROMPT_CONTRACT,ctx)
+
+    def test_question_relevant_plain_row_beats_newer_unrelated_row(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        asyncio.run(a._dispatch_inbound_event(event("deadline is Friday","old",user="Bob")))
+        asyncio.run(a._dispatch_inbound_event(event("unrelated newer note","new",user="Carol")))
+        asyncio.run(a._dispatch_inbound_event(event("when is the deadline","ask",user="Dave",at=True)))
+        ctx=a.dispatched[-1].channel_context
+        self.assertIn("deadline is Friday", ctx)
+        self.assertNotIn("unrelated newer note", ctx)
 
     def test_l2_attaches_previous_media_message_without_feishu_reply(self):
         a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
@@ -279,6 +301,20 @@ class Tier0ContextV2Test(unittest.TestCase):
         self.assertEqual(out.media_urls,[])                 # explicit reply still narrows: no recent media
         audits=[r for r in a.store.audit_events("chat-a") if r["event"]=="enhance_event"]
         self.assertEqual(json.loads(audits[-1]["detail"])["scope"],"focused_reply")
+
+    def test_focused_reply_adds_evicted_parent_text_without_duplication(self):
+        a=MediaAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        ask=event("what about it", "m1", user="Alice", at=True, reply="p1")
+        ask.reply_to_text="parent deadline is Friday"
+        asyncio.run(a._dispatch_inbound_event(ask))
+        self.assertIn("parent deadline is Friday", a.dispatched[-1].channel_context)
+
+        b=MediaAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        asyncio.run(b._dispatch_inbound_event(event("parent deadline is Friday","p1",user="Bob")))
+        ask=event("what about it", "m1", user="Alice", at=True, reply="p1")
+        ask.reply_to_text="parent deadline is Friday"
+        asyncio.run(b._dispatch_inbound_event(ask))
+        self.assertEqual(b.dispatched[-1].channel_context.count("parent deadline is Friday"),1)
 
     def test_deictic_media_recorded_in_provenance(self):
         a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
