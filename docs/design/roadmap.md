@@ -11,14 +11,49 @@ Here the two are merged, ordered by **user value**, mapped to the correct
 
 ---
 
+## 0. Field corrections (2026-06-27) — native Hermes capability vs. claude-tag
+
+The Phase-1 analysis characterized Hermes-on-Slack from **docs/GitHub, not from a
+running bot**, and the parity plan inherited "Hermes = synchronous Q&A." Field
+evidence corrected three items. Root cause: capability claims about a running
+system must be checked against the running system, not only its docs.
+
+1. **Positioning stays.** "**Use Hermes to bring claude-tag-style capability to
+   your Feishu/Lark (and Slack)**" is the product's headline and north star — it is
+   **not** removed. claude-tag is the benchmark we measure against; the README's
+   honesty job is only to mark what is *shipped now* vs. *on this roadmap*, never to
+   drop the claude-tag framing. (Corrects F8 below.)
+2. **The "on it" ack is already native.** Hermes natively posts a *processing
+   reaction* (an emoji on the triggering message) while it works — observed in the
+   product, not in the docs the research read. So P0-A was mis-scoped: there is **no
+   ack to build**. Where claude-tag is genuinely *stronger* is the **staged,
+   multi-step in-thread checklist** ("Pulled p99 latency → Diffed deploy → Opening a
+   PR") — live progress for a multi-step agentic task. That is **Hermes-agent-core**
+   behavior (the agent's tool loop posting intermediate updates), not a
+   context/memory-layer concern, so it is **declined** here alongside autonomous
+   execution. (Corrects P0-A → moved to §4.)
+3. **Slack already reads contextual images.** Slack `receive_all=True` buffers all
+   media into Tier-0 via the platform-agnostic `store_tier0 → _persist_event_media`,
+   and current-message + deictic/recent + buffered-parent images flow into the model
+   (field-verified: a Slack "上面这张图是什么" was answered correctly). The Slack
+   `_fetch_reply_media_refs` stub is **not** "Slack is text-only" — it only affects an
+   explicit reply to a parent that is **no longer in the Tier-0 buffer**. (Corrects
+   F6 below; the "Slack text-only" caveat is removed.)
+4. **Proactive follow-up is parked.** Opt-in ambient follow-up is a real claude-tag
+   trait, but the owner's call is **do not build it for now** — recorded in §4, not
+   to be implemented unless the owner reverses. (Removes Phase 4 / P0-B from active
+   scope; I3 "no ambient" therefore stays an absolute invariant again.)
+
+---
+
 ## 1. Principles
 
 ### 1.1 Value-first ordering
 
 Phases are ordered by user-visible value × confidence, not by "fixes before
-features." Correctness work that directly removes wrong/low-trust answers and the
-single cheapest "feels like a teammate" win come first; internal hygiene and
-gated product bets come last. Each item carries an explicit **Value** rating.
+features." Correctness work that directly removes wrong/low-trust answers comes
+first; internal hygiene comes last; capabilities Hermes already provides natively
+are not rebuilt (§0). Each item carries an explicit **Value** rating.
 
 ### 1.2 Architecture / layering contract (load-bearing)
 
@@ -48,22 +83,22 @@ core):**
 
 | Layer | Modules | Holds |
 | --- | --- | --- |
-| A (shared) | `core.py`, `context.py`, `base.py`, `i18n.py` | selection, ranking, memory, prompt contract, consent text, dedup, scheduling decisions, governance/audit, teammate-reply *policy*, ambient heuristic |
-| B (Slack) | `platforms/slack.py` | Slack mention detection, Slack reply-media, Slack manifest/setup |
+| A (shared) | `core.py`, `context.py`, `base.py`, `i18n.py` | selection, ranking, memory, prompt contract, consent text, dedup, scheduling decisions, governance/audit, ambient heuristic *(parked)* |
+| B (Slack) | `platforms/slack.py` | Slack mention detection, Slack evicted-parent reply-media, Slack manifest/setup |
 | B (Feishu) | `platforms/feishu.py` | Feishu mention detection, Feishu media fetch/download, Feishu setup |
 
 ### 1.3 Invariant policy
 
-The fix-plan invariants **I1, I4, I5, I6 hold absolutely** throughout (ReplyTarget
-≠ ContextPack; `enabled_chats` boundary; additive/fail-safe; privacy posture &
-"no full message body in audit"). Two are **consciously, narrowly relaxed** — each
-gated as an owner decision, never default-on:
+The fix-plan invariants **I1, I3, I4, I5, I6 hold absolutely** throughout
+(ReplyTarget ≠ ContextPack; `enabled_chats` boundary; **no ambient — @-only**;
+additive/fail-safe; privacy posture & "no full message body in audit"). Exactly
+**one** is consciously, narrowly relaxed, gated as an owner decision:
 
 - **I2 (three bounded scopes)** → relaxed by **P1-A** (adds a named `thread`
   scope). Bounded: no candidate-pool expansion, no RAG.
-- **I3 (no ambient; @-only)** → relaxed by **P0-B** (opt-in heuristic follow-up).
-  Bounded: off by default, per-chat opt-in, **no model call, no Tier-1 write, no
-  message body in nudge/audit**, plus a **consent-notice update** (see P0-B).
+
+(Ambient follow-up — the former P0-B — would have relaxed I3, but the owner has
+**parked it** (§0.4, §4), so **I3 stays absolute**.)
 
 **I7 (extended).** Existing `PlatformSeam` signatures and `assert_real_seams`
 requirements are unchanged. New capabilities **may add** a seam method, each with
@@ -111,11 +146,16 @@ what it stores. Pure shared-core; zero platform code; zero invariant relaxation.
 - **F8 + P0-C · Governance honesty (merged — both touch trust narrative/audit).**
   *Value: high for the self-hosted/privacy-conscious wedge.* **Layer A** (README
   docs; `base` admin command; `TagStore` audit already platform-agnostic).
-  - Reword README L13 to drop the Claude-Tag/Dust/Glean *parity* claim; describe
-    bounded **evidence** selection + governed per-chat memory (keep `README.zh-CN.md`
-    in parity). Lead with the trust narrative ("`enabled_chats` is the boundary;
-    every enabled-chat message is buffered as short-lived TTL/count-evicted Tier-0
-    in local SQLite; only @-mentions reach the model and create Tier-1").
+  - **Keep the claude-tag positioning (§0.1).** The README headline stays "use
+    Hermes to bring claude-tag-style capability to Feishu/Lark (and Slack)" — that
+    is the product's north star, not to be removed. The only README edit is
+    *honesty about staging*: add a short "what's shipped now vs. on the roadmap"
+    line so the claude-tag *comparison* is framed as the goal we're driving toward,
+    not a claim that every claude-tag appeal (connectors, source-binding) already
+    ships. Keep `README.zh-CN.md` in parity. Also lead with the trust narrative
+    ("`enabled_chats` is the boundary; every enabled-chat message is buffered as
+    short-lived TTL/count-evicted Tier-0 in local SQLite; only @-mentions reach the
+    model and create Tier-1").
   - **Audit timestamp prerequisite (schema gap).** `audit_events` today is
     `(id, event, chat_id, detail)` with **no timestamp** (`core.py:92`), and
     `audit()` writes none (`core.py:133`). So add a `created_at REAL` column via an
@@ -132,31 +172,17 @@ what it stores. Pure shared-core; zero platform code; zero invariant relaxation.
   *Acceptance:* a newly written audit event has non-null `created_at`; the
   migration adds the column idempotently on an existing DB (running `TagStore`
   twice does not error); `/tag admin audit` output contains no
-  `context_preview`/message body and surfaces type/timestamp/scope/counts; README
-  contains no connector/source-selection parity claim (grep); scope table +
-  security section unchanged.
+  `context_preview`/message body and surfaces type/timestamp/scope/counts; the
+  README **keeps** the claude-tag positioning **and** carries a shipped-now-vs-
+  roadmap line (so the comparison reads as a goal, not as already-shipped
+  connector parity); scope table + security section unchanged.
 
-### Phase 2 — Teammate feel & memory/robustness quality (high perceived value, additive)
+### Phase 2 — Memory quality & robustness (additive, pure Layer A unless noted)
 
-- **P0-A · Teammate-feel reply.** *Value: high (captures the #1 Claude-Tag appeal
-  — "feels like a teammate" — for cents).* **Layer A policy** (`TagEngine`/`base`
-  orchestration): on @-mention, post an instant ack (`🏷️ on it`) then the
-  threaded reply — **two ordinary sends, no new seam, no new data path**.
-  **Critical:** the ack must go through the *platform* send
-  (`send_to_platform`/`super().send`), **not** `engine.send` — because
-  `engine.send` pops the pending map and triggers a Tier-1 write using the message
-  text as the "conclusion" (`core.py:353-363`), so an ack via `engine.send` would
-  fabricate a `🏷️ on it` memory and consume the real answer's correlation. Only
-  the real answer flows through `engine.send`/the Tier-1 path. The optional "edit
-  the ack into the answer" variant needs a per-platform edit mechanism; if pursued
-  it is a **new `edit_message` seam** (Layer A interface + Layer B impl) with a
-  default that falls back to a second send — deferred, not required.
-  *Invariant:* I1/I6 — ack carries no evidence; reply target unchanged.
-  *Acceptance:* an @-mention yields an ack then a threaded reply; the ack creates
-  **no** Tier-1 row and does not consume the pending correlation (assert
-  `count_tier1` unchanged by the ack, and the real answer still writes Tier-1
-  normally); evidence sent to the model is unchanged; default path adds no seam
-  method.
+> Note: the "teammate-feel ack" (former P0-A) is **dropped** — Hermes already posts
+> a native processing reaction (§0.2); there is nothing to build. claude-tag's
+> stronger staged in-thread checklist is Hermes-agent-core, declined (§4).
+
 - **F5 · Suppress near-duplicate Tier-1 writes.** *Value: medium (keeps memory
   signal, not sand).* **Layer A** (`base._write_tier1_memory`, `core` helper).
   Skip the write only when the new summary is ≥0.9 token-overlap with the most
@@ -169,15 +195,29 @@ what it stores. Pure shared-core; zero platform code; zero invariant relaxation.
   `max(confidence)`, and truncate to `CONSOLIDATED_SUMMARY_MAX_CHARS = 2000`.
   *Acceptance:* high-confidence recent memory survives over the cap; count returns
   `≤ max_count`; every merged summary `≤ 2000` chars.
-- **F6 · Slack media honesty.** *Value: medium (correctness/honesty; unblocks the
-  Slack focused_reply story).* **Layer B** (`platforms/slack.py`) + **Layer A**
-  surface (`preflight_status`). Default: the Slack `_fetch_reply_media_refs` no-op
-  increments `slack_reply_media_unsupported` when called with a `reply_id`; surface
-  it in preflight; add a README/scope-table caveat that Slack evidence is
-  **text-only**. *Optional follow-up (Layer B, deferred, gated on `files:read`):*
-  real parent-file fetch reusing the existing `0o600`/eviction path.
-  *Acceptance:* a Slack event with `reply_to_message_id` increments the metric and
-  carries no media; README states Slack text-only; base Slack platform still works.
+- **F6 · Slack evicted-parent reply-media fallback (narrow; corrected per §0.3).**
+  *Value: low (narrow edge case — Slack media already works for the common paths).*
+  **Correction:** Slack is **not** text-only. `receive_all=True` buffers all media
+  into Tier-0 (`store_tier0 → _persist_event_media`, Layer A), so **current-message,
+  deictic/recent, and buffered-parent images already reach the model** on Slack
+  (field-verified). The Slack `_fetch_reply_media_refs` stub (`platforms/slack.py`)
+  only matters for an **explicit reply to a parent no longer in the Tier-0 buffer**
+  (evicted by TTL/count, or posted before the bot joined) — the media analogue of
+  F2's evicted-parent text gap.
+  - **Default (ships now):** make the edge case observable, not silently empty —
+    increment `slack_reply_media_unavailable` in the Slack `_fetch_reply_media_refs`
+    no-op when called with a `reply_id` (**Layer B**), and surface it in
+    `preflight_status` (**Layer A**). **Do not** add a "Slack is text-only" README
+    caveat — that would be false; if anything, document that Slack media works for
+    current/recent/buffered context and only evicted-parent reply media is
+    unfetched.
+  - **Optional follow-up (Layer B, deferred, gated on `files:read`):** real
+    parent-file fetch (`conversations.replies` + `url_private`) reusing the existing
+    `0o600`/eviction path, only when the parent is absent from Tier-0.
+  *Acceptance:* a Slack reply whose parent is **not** in Tier-0 increments
+  `slack_reply_media_unavailable` (the no-op ran); a Slack message/deictic reference
+  whose image **is** in Tier-0 still carries that media to the model (regression
+  guard proving Slack is not text-only); base Slack platform still works.
 - **F7 · Session-reset degradation signal.** *Value: low (ops).* **Layer A**
   (`base._reset_gateway_session`, `preflight_status`). Add `session_reset_degraded`
   metric + preflight flag when the Hermes runner internals aren't reachable; keep
@@ -226,7 +266,13 @@ what it stores. Pure shared-core; zero platform code; zero invariant relaxation.
   config block; the manual path stays documented; no runtime adapter change; no new
   console entry point added to `pyproject.toml`.
 
-### Phase 4 — Ambient follow-up (I3 relaxation; gated product bet; all guards)
+### PARKED — Ambient follow-up (P0-B) — recorded, NOT on the active roadmap
+
+> **Owner decision (§0.4): do not build proactive follow-up for now.** This is a
+> real claude-tag trait, but it stays parked unless the owner explicitly reverses.
+> The full design is **kept below as a record** (so a future revival starts from a
+> reviewed spec, not a blank page); it is **not** scheduled and does **not** relax
+> I3 while parked. Nothing in Phases 1–3 depends on it.
 
 - **P0-B · Opt-in heuristic standing follow-up.** *Value: medium, **risk: high** —
   this is the one item that posts **unprompted** in a channel, the "surveillance /
@@ -331,19 +377,26 @@ what it stores. Pure shared-core; zero platform code; zero invariant relaxation.
   local run: **`Ran 80 tests … OK (skipped=1)`**. Every item lands with its own
   stub test; the baseline stays
   green as a regression gate. No new dependency; stdlib only.
-- **Sequencing graph.** Phase 1 (F1→F2→F3→F8/P0-C) → Phase 2 (P0-A, F4, F5, F6,
-  F7, F9, independent) → Phase 3 (P1-A after F3; P1-B independent) → Phase 4
-  (P0-B, depends on a reliable Tier-0 buffer and on Phase-1 honesty being live).
+- **Sequencing graph.** Phase 1 (F1→F2→F3→F8/P0-C) → Phase 2 (F4, F5, F6, F7, F9,
+  independent) → Phase 3 (P1-A after F3; P1-B independent). Ambient (P0-B) is
+  **parked**, not in the graph.
 
 ## 4. Declined / deferred (positioning)
 
 - **Declined by design:** external connectors / MCP fabric / agent identity
   (that's Hermes-agent core, not a context/memory layer); cross-channel
   "workspace memory" (per-chat isolation is the privacy promise and the honest
-  self-hosted differentiator); autonomous multi-stage agent execution.
-- **Deferred owner decisions (not default scope):** P0-A message-edit variant
-  (needs an `edit_message` seam); F6 real Slack file fetch; P0-B model-summarized
-  digest; a per-chat message/spend cap.
+  self-hosted differentiator); autonomous multi-stage agent execution; **the staged
+  multi-step in-thread checklist** (claude-tag's stronger "working…" UX — also
+  Hermes-agent-core, §0.2).
+- **Already native — nothing to build:** the **"on it" processing reaction** (former
+  P0-A) is provided by Hermes core (§0.2); **contextual image reading on Slack**
+  (current/recent/buffered) already works (§0.3).
+- **Parked (recorded, not building unless the owner reverses):** **P0-B opt-in
+  ambient follow-up** — full design kept in the "PARKED" section above (§0.4).
+- **Deferred owner decisions (not default scope):** F6 real Slack evicted-parent
+  file fetch; a per-chat message/spend cap; a future `edit_message` seam if an
+  "edit ack into answer" UX is ever wanted.
 
 ## 5. Layer-placement summary (the abstraction model, at a glance)
 
@@ -353,17 +406,17 @@ what it stores. Pure shared-core; zero platform code; zero invariant relaxation.
 | F2 parent-text evidence | 1 | A (`base`) | no |
 | F3 question-aware ranking | 1 | A (`context`,`core`) | no |
 | F8+P0-C governance honesty | 1 | A (`base`,docs) | no |
-| P0-A teammate reply | 2 | A policy / existing `send` | no (edit variant deferred) |
+| ~~P0-A teammate reply~~ | — | **dropped — native (§0.2)** | — |
 | F5 dup-suppression | 2 | A (`base`,`core`) | no |
 | F4 consolidation | 2 | A (`core`) | no |
-| F6 Slack media honesty | 2 | B (`slack`) + A surface | no |
+| F6 Slack evicted-parent media | 2 | B (`slack`) + A surface | no |
 | F7 session-reset signal | 2 | A (`base`) | no |
 | F9 job-id | 2 | A (`core`) | no |
 | P1-A `thread` scope | 3 | A (`context`) | no |
 | P1-B one-command setup | 3 | tooling (Slack script), no runtime layer | no |
-| P0-B ambient follow-up | 4 | A (heuristic/config/consent) + existing cron/`send` | no |
+| P0-B ambient follow-up | **parked** | A (heuristic/config/consent) + existing cron/`send` | no |
 
 Every generic capability is Layer A; the only platform-specific work is F6 (Slack
-no-op honesty), P1-B (Slack manifest), and the deferred P0-A edit / F6 fetch — each
-strictly an adapter-side mechanism behind a seam. No generic logic lives in an
+evicted-parent media no-op + optional fetch) and P1-B (Slack manifest script) —
+each strictly an adapter-side mechanism behind a seam. No generic logic lives in an
 adapter; no platform mechanism leaks into core.
