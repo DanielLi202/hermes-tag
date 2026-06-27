@@ -54,6 +54,9 @@ class ContextSelector:
         candidates = [self._candidate(event, row) for row in recent_rows]
         excluded: list[tuple[str, str]] = []
         anchor_id = getattr(event, "reply_to_message_id", None) or self._thread_id(event)
+        if anchor_id and str(anchor_id) == str(getattr(event, "message_id", "")):
+            # ponytail: Slack top-level messages use their own ts as synthetic thread_id.
+            anchor_id = None
         if anchor_id:
             anchor = str(anchor_id)
             anchor_candidates = [

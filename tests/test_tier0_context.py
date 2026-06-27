@@ -100,6 +100,24 @@ class Tier0ContextV2Test(unittest.TestCase):
         self.assertIn("[media message: 1 attachment(s)]", out.channel_context)
         self.assertIn("[related media from img1: 1 attachment(s)]", out.channel_context)
 
+    def test_synthetic_self_thread_does_not_block_deictic_media(self):
+        a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        incoming.write(b"image-bytes"); incoming.close()
+        img=event("", "img1", user="Alice")
+        img.media_urls=[incoming.name]; img.media_types=["image/png"]
+        asyncio.run(a._dispatch_inbound_event(img))
+        stored_path=json.loads(a.store.tier0_rows("chat-a")[-1]["media_paths"])[0]
+
+        ask=event("上面这张图是什么","ask1",user="Alice",at=True)
+        ask.source.thread_id="ask1"
+        asyncio.run(a._dispatch_inbound_event(ask))
+        out=a.dispatched[-1]
+        self.assertIn(stored_path, out.media_urls)
+        detail=json.loads([r for r in a.store.audit_events("chat-a") if r["event"]=="enhance_event"][-1]["detail"])
+        self.assertEqual(detail["scope"],"deictic_recent")
+        self.assertFalse(detail["reanchored"])
+
     def test_plain_mention_attaches_no_recent_media(self):
         a=FeishuTagAdapter(PlatformConfig(), cfg(max_context_chars=500))
         incoming=tempfile.NamedTemporaryFile(suffix=".png", delete=False)

@@ -26,6 +26,9 @@ class RealHermesCompatTest(unittest.TestCase):
             class Ctx:
                 def __init__(self):
                     self.calls = []
+                    self.commands = []
+                def register_command(self, name, handler, description="", args_hint=""):
+                    self.commands.append({{"name": name, "description": description, "args_hint": args_hint}})
                 def register_platform(self, name, label, adapter_factory, check_fn, validate_config=None, required_env=None, install_hint="", **entry_kwargs):
                     self.calls.append({{
                         "name": name,
@@ -45,6 +48,7 @@ class RealHermesCompatTest(unittest.TestCase):
                 "base": mod.BASE_FEISHU_MODULE,
                 "check": mod.check_requirements(),
                 "registered": ctx.calls,
+                "commands": ctx.commands,
                 "seeded": seeded,
             }}, sort_keys=True))
             """
@@ -59,6 +63,14 @@ class RealHermesCompatTest(unittest.TestCase):
         data = json.loads(result.stdout)
         self.assertEqual(data["base"], "plugins.platforms.feishu.adapter")
         self.assertTrue(data["check"])
+        self.assertIn(
+            {
+                "name": "tag",
+                "description": "Hermes Tag commands",
+                "args_hint": "help | status | admin count | standing ...",
+            },
+            data["commands"],
+        )
         self.assertEqual(data["registered"][0]["name"], "feishu")
         self.assertTrue(data["registered"][0]["check"])
         self.assertIn("apply_yaml_config_fn", data["registered"][0]["keys"])

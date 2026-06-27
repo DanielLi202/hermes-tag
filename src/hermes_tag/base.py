@@ -127,8 +127,8 @@ class TagAdapterMixin:
             "boundary": BOUNDARY_TEXT,
             "encryption_posture": self.tag.encryption_posture,
             "capabilities": {
-                "tier0_full_ingest": self.tag.has_group_msg_scope,
-                "l2_context": self.tag.has_group_msg_scope,
+                "tier0_full_ingest": self.tag.uses_tier0_context,
+                "l2_context": self.tag.uses_tier0_context,
                 "tier1_at_memory": True,
             },
             "seams": {
@@ -145,7 +145,7 @@ class TagAdapterMixin:
                 "command_send_failure": self.store.metric("command_send_failure"),
                 "media_download_success": self.store.metric("media_download_success"),
                 "media_download_failure": self.store.metric("media_download_failure"),
-                "degraded_no_group_msg": 0 if self.tag.has_group_msg_scope else 1,
+                "degraded_no_group_msg": 0 if self.tag.uses_tier0_context else 1,
                 "standing_jobs": self.store.count_standing_jobs(chat_id),
                 "enabled_chat_metrics": chat_metrics,
                 "override_selfcheck_ok": 1,
@@ -203,11 +203,11 @@ class TagAdapterMixin:
     async def _enhance_event(self, event: MessageEvent) -> tuple[MessageEvent, list[str]]:
         parent_urls, parent_types, placeholders, parent_paths = await self._load_reply_media(event)
         orphan_paths: list[str] = []
-        if parent_paths and self.tag.has_group_msg_scope:
+        if parent_paths and self.tag.uses_tier0_context:
             self.store.set_tier0_media_paths(_chat_id(event), event.message_id or "", parent_paths)
         elif parent_paths:
             orphan_paths.extend(parent_paths)
-        recent_rows = [r for r in self.store.tier0_rows(_chat_id(event)) if r["message_id"] != event.message_id] if self.tag.has_group_msg_scope else []
+        recent_rows = [r for r in self.store.tier0_rows(_chat_id(event)) if r["message_id"] != event.message_id] if self.tag.uses_tier0_context else []
         memory_rows = self.store.relevant_tier1(event)
         pack = ContextSelector().select(
             event,
@@ -222,6 +222,9 @@ class TagAdapterMixin:
         memories = [f"memory(owner={row['owner']}): {row['summary']}" for row in pack.memory_rows]
         explicit_reply_id = getattr(event, "reply_to_message_id", None)
         explicit_anchor_id = explicit_reply_id or _thread_id(event)
+        if explicit_anchor_id and str(explicit_anchor_id) == str(getattr(event, "message_id", "")):
+            # ponytail: Slack top-level messages use their own ts as synthetic thread_id.
+            explicit_anchor_id = None
         source_ids = _dedupe(
             [row["message_id"] for row in pack.text_rows]
             + [row["message_id"] for row in pack.media_rows]

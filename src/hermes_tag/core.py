@@ -28,6 +28,7 @@ class TagConfig:
     require_mention: bool = True
     bot_open_id: str = ""
     tier1_pending_ttl_seconds: int = 3600
+    tier0_context_enabled: bool | None = None
 
     def __post_init__(self) -> None:
         if not self.enabled_chats:
@@ -39,11 +40,12 @@ class TagConfig:
     def from_platform_config(cls, config: PlatformConfig | dict[str, Any]) -> "TagConfig":
         extra = config.get("extra", config) if isinstance(config, dict) else (getattr(config, "extra", {}) or {})
         data = extra.get("feishu_tag", extra)
+        granted_scopes = frozenset(data.get("granted_scopes") or ())
         return cls(
             enabled_chats=tuple(data.get("enabled_chats") or ()),
             bot_app_id=str(data.get("bot_app_id") or data.get("app_id") or "").strip(),
             db_path=str(data.get("db_path") or "feishu-tag.sqlite3"),
-            granted_scopes=frozenset(data.get("granted_scopes") or ()),
+            granted_scopes=granted_scopes,
             encryption_posture=str(data.get("encryption_posture") or "plaintext-db-on-local-disk").strip(),
             max_context_chars=int(data.get("max_context_chars") or 4000),
             max_reply_media_items=int(data.get("max_reply_media_items") or 4),
@@ -56,6 +58,7 @@ class TagConfig:
             require_mention=bool(data.get("require_mention", True)),
             bot_open_id=str(data.get("bot_open_id") or data.get("bot_open_id_for_mentions") or "").strip(),
             tier1_pending_ttl_seconds=int(data.get("tier1_pending_ttl_seconds") or 3600),
+            tier0_context_enabled=data.get("tier0_context_enabled", "im:message.group_msg" in granted_scopes),
         )
 
     @property
@@ -65,6 +68,12 @@ class TagConfig:
     @property
     def has_group_msg_scope(self) -> bool:
         return "im:message.group_msg" in self.granted_scopes
+
+    @property
+    def uses_tier0_context(self) -> bool:
+        if self.tier0_context_enabled is None:
+            return self.has_group_msg_scope
+        return bool(self.tier0_context_enabled)
 
 
 class TagStore:
