@@ -96,5 +96,41 @@ class SlackSeamTest(unittest.TestCase):
         self.assertIn("U1: the deadline is Friday", adapter.dispatched[-1].channel_context)
 
 
+class SlackBaseLoaderTest(unittest.TestCase):
+    def test_loader_falls_back_to_gateway_platform(self):
+        from hermes_tag.platforms import slack as slack_mod
+
+        sentinel = SimpleNamespace(__name__="gateway.platforms.slack")
+        tried: list[str] = []
+
+        def fake_import(name):
+            tried.append(name)
+            if name == "gateway.platforms.slack":
+                return sentinel
+            raise ModuleNotFoundError(name)
+
+        orig = slack_mod.importlib.import_module
+        slack_mod.importlib.import_module = fake_import
+        try:
+            self.assertIs(slack_mod._load_base_slack_module(), sentinel)
+        finally:
+            slack_mod.importlib.import_module = orig
+        self.assertEqual(tried, ["plugins.platforms.slack.adapter", "gateway.platforms.slack"])
+
+    def test_loader_raises_combined_error_when_all_missing(self):
+        from hermes_tag.platforms import slack as slack_mod
+
+        orig = slack_mod.importlib.import_module
+        slack_mod.importlib.import_module = lambda name: (_ for _ in ()).throw(ModuleNotFoundError(name))
+        try:
+            with self.assertRaises(ImportError) as ctx:
+                slack_mod._load_base_slack_module()
+        finally:
+            slack_mod.importlib.import_module = orig
+        msg = str(ctx.exception)
+        self.assertIn("plugins.platforms.slack.adapter", msg)
+        self.assertIn("gateway.platforms.slack", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,16 @@ SLACK_AVAILABLE = False
 
 
 def _load_base_slack_module() -> Any:
-    return importlib.import_module("plugins.platforms.slack.adapter")
+    # Mirror feishu.py: newer Hermes builds expose the platform at
+    # plugins.platforms.slack.adapter; the v2026.6.19 tag keeps it at
+    # gateway.platforms.slack. Try both so the pinned install isn't a stub.
+    errors: list[str] = []
+    for module_name in ("plugins.platforms.slack.adapter", "gateway.platforms.slack"):
+        try:
+            return importlib.import_module(module_name)
+        except Exception as exc:
+            errors.append(f"{module_name}: {type(exc).__name__}: {exc}")
+    raise ImportError("; ".join(errors))
 
 
 try:  # real Hermes path
@@ -28,7 +37,9 @@ try:  # real Hermes path
     SLACK_AVAILABLE = bool(getattr(_base_slack, "SLACK_AVAILABLE", False))
     SlackAdapter = getattr(_base_slack, "SlackAdapter")
     _base_check_requirements = getattr(_base_slack, "check_slack_requirements", lambda: SLACK_AVAILABLE)
-    _base_build_adapter = getattr(_base_slack, "_build_adapter")
+    # gateway.platforms.slack (old layout) has no _build_adapter; native new-layout
+    # _build_adapter is just `SlackAdapter(config)`, so the default matches it.
+    _base_build_adapter = getattr(_base_slack, "_build_adapter", lambda config: SlackAdapter(config))
     _base_is_connected = getattr(_base_slack, "_is_connected", None)
     _base_interactive_setup = getattr(_base_slack, "interactive_setup", None)
     _base_apply_yaml_config = getattr(_base_slack, "_apply_yaml_config", None)
