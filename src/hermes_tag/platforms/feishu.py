@@ -42,6 +42,7 @@ try:  # real Hermes path
     FEISHU_AVAILABLE = bool(getattr(_base_feishu, "FEISHU_AVAILABLE", False))
     FeishuAdapter = getattr(_base_feishu, "FeishuAdapter")
     normalize_feishu_message = getattr(_base_feishu, "normalize_feishu_message")
+    _base_strip_edge_self_mentions = getattr(_base_feishu, "_strip_edge_self_mentions", lambda text, mentions: text)
     _base_check_requirements = getattr(_base_feishu, "check_feishu_requirements", lambda: FEISHU_AVAILABLE)
     _base_apply_yaml_config = getattr(_base_feishu, "_apply_yaml_config", None)
     _base_interactive_setup = getattr(_base_feishu, "interactive_setup", None)
@@ -112,6 +113,8 @@ except Exception:  # local tests / scaffold path
             "media_refs": [type("MediaRef", (), {"file_key": payload.get("file_key", ""), "resource_type": message_type, "file_name": payload.get("file_name", "")})()] if payload.get("file_key") else [],
         })()
 
+    _base_strip_edge_self_mentions = lambda text, mentions: text
+
 
 class FeishuTagAdapter(TagAdapterMixin, FeishuAdapter):
     base_feishu_module = BASE_FEISHU_MODULE
@@ -139,6 +142,11 @@ class FeishuTagAdapter(TagAdapterMixin, FeishuAdapter):
             except Exception:
                 pass
         return _is_mentioned(event, self.tag)
+
+    async def _extract_message_content(self, message: Any):
+        text, inbound_type, media_urls, media_types, mentions = await super()._extract_message_content(message)
+        text = _keep_pure_self_mention(text, inbound_type, media_urls, mentions)
+        return text, inbound_type, media_urls, media_types, mentions
 
     async def _fetch_reply_media_refs(self, reply_id: str) -> list[dict]:
         if hasattr(self, "parent_messages"):
@@ -273,6 +281,17 @@ def _is_mentioned(event: MessageEvent, config: FeishuTagConfig) -> bool:
         if bot_open_id and mention_id == bot_open_id:
             return True
     return False
+
+
+def _keep_pure_self_mention(text: str, inbound_type: Any, media_urls: list[str], mentions: list[Any], strip_edge_self_mentions: Any = None) -> str:
+    if inbound_type != MessageType.TEXT or media_urls or not any(getattr(m, "is_self", False) for m in mentions or []):
+        return text
+    try:
+        stripped = (strip_edge_self_mentions or _base_strip_edge_self_mentions)(text, mentions)
+    except Exception:
+        return text
+    # ponytail: one neutral token keeps Hermes' native empty-text guard from eating a bare @bot.
+    return "[Mentioned bot]" if not stripped else text
 
 
 def _event_mentions(event: MessageEvent) -> list[Any]:

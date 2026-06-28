@@ -2,6 +2,7 @@ import importlib.util
 import inspect
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import stat
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ os.environ.setdefault("HERMES_PLUGIN_FEISHU_USE_STUBS", "1")
 
 import hermes_tag.adapter as mod
 from hermes_tag import FeishuTagAdapter, FeishuTagConfig, MessageEvent, PlatformConfig, TagEngine, adapter_factory, assert_real_seams, register
+from hermes_tag.platforms.feishu import _keep_pure_self_mention
 
 
 def temp_config(**kw):
@@ -152,6 +154,12 @@ class FoundationV2Test(unittest.TestCase):
         self.assertIsNone(asyncio.run(a._dispatch_inbound_event(MessageEvent("question", source=source(), raw_message=raw_feishu_data(raw_message), message_id="m2"))))
         self.assertEqual(a.store.count_tier0("chat-a"),1)
         self.assertEqual(len(a.dispatched),1)
+
+    def test_pure_self_mention_survives_native_empty_guard(self):
+        mention=SimpleNamespace(is_self=True)
+        strip=lambda text, mentions: "" if text == "@bot" else text
+        self.assertEqual(_keep_pure_self_mention("@bot", mod.MessageType.TEXT, [], [mention], strip), "[Mentioned bot]")
+        self.assertEqual(_keep_pure_self_mention("@bot ping", mod.MessageType.TEXT, [], [mention], strip), "@bot ping")
 
     def test_dm_pilot_does_not_require_mention(self):
         a=FeishuTagAdapter(PlatformConfig(), temp_config(require_mention=False))
