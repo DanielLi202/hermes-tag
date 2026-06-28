@@ -12,3 +12,6 @@ docs/token.md
 # local agent tooling (npx skills) — not project code
 .agents/
 skills-lock.json
+
+# internal launch/marketing playbooks — keep out of the public repo
+docs/design/营销计划*.md
