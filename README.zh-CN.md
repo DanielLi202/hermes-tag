@@ -8,10 +8,9 @@
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Version: 0.2.0](https://img.shields.io/badge/version-0.2.0-blue.svg) ![hermes-agent: v2026.6.19](https://img.shields.io/badge/hermes--agent-v2026.6.19-blue.svg) ![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 
-<!-- 头图 GIF（按 docs/design/ 的 GIF 脚本录制后取消注释）：
-<p align="center"><img src="docs/demo.zh.gif" alt="在飞书群里先发三张图、补一段说明，同事插几句，然后 @ Hermes Tag——它的对话内回复引用了那几张图的原图、你的说明和相关讨论，并忽略了无关闲聊" width="720"></p>
--->
-*演示（即将上线）：在飞书群里你先发三张图、补一段说明，同事插几句，然后才 @ 它——它的对话内回复会引用那几张图的原图、你的说明和相关讨论，并忽略无关闲聊。*
+<p align="center"><img src="docs/demo.zh.gif" alt="在飞书群里先发三张图、再补几句说明、夹一句无关的「中午吃饭」，最后才 @ Hermes Tag——它在对话内回复，综合三张图的原图、你的说明和相关讨论，按编号给出关键结论，无关的那句不进结论。" width="760"></p>
+
+<p align="center"><sub>真实录屏 · <a href="docs/demo.zh.mp4">高清 MP4</a></sub></p>
 
 ## 这是什么
 
