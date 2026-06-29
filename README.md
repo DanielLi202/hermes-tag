@@ -24,7 +24,7 @@ What it uniquely adds on top of Hermes's built-in channels:
 
 The `ContextSelector` chooses bounded evidence with `focused_reply`, `thread`, `deictic_recent`, and `plain` scopes instead of dumping the transcript. That means no full-history RAG and no ambient auto-answering.
 
-**Shipped now vs. roadmap.** Shipped: bounded multimodal evidence, Tier-0/Tier-1 memory, per-chat isolation, admin lifecycle, and redacted audit — on Feishu/Lark and Slack. Roadmap: deeper connector/source-binding parity. The Claude-Tag comparison is the goal we measure against, not a claim that every Claude-Tag feature already ships.
+**Shipped now vs. roadmap.** Shipped: bounded multimodal evidence, Tier-0/Tier-1 memory, per-chat isolation, admin lifecycle, and redacted audit — on Feishu/Lark and Slack. DingTalk is also supported, but with **reduced capability**: DingTalk bots only receive messages that @-mention them in groups (no equivalent of Feishu's `im:message.group_msg`), so ambient group context (Tier-0) isn't available there — see [docs/dingtalk.md](docs/dingtalk.md). Roadmap: deeper connector/source-binding parity. The Claude-Tag comparison is the goal we measure against, not a claim that every Claude-Tag feature already ships.
 
 This repository, the Python/pip package, and the manifest name are all `hermes-tag`.
 
@@ -75,7 +75,7 @@ platforms:
         encryption_posture: plaintext-db-on-local-disk
 ```
 
-Full onboarding + live verification: see [after-install.md](after-install.md). Slack setup: see [docs/slack-setup.md](docs/slack-setup.md).
+Full onboarding + live verification: see [after-install.md](after-install.md). Slack setup: see [docs/slack-setup.md](docs/slack-setup.md). DingTalk setup + capability limits: see [docs/dingtalk.md](docs/dingtalk.md).
 
 ## Usage
 
@@ -105,6 +105,7 @@ In groups, `/tag` commands require @-mention.
 - `src/hermes_tag/base.py` — TagAdapterMixin: the platform-agnostic orchestration.
 - `src/hermes_tag/platforms/feishu.py` — Feishu binding: mention detection, media fetch/download, registration.
 - `src/hermes_tag/platforms/slack.py` — Slack binding: mention detection, media buffering, registration.
+- `src/hermes_tag/platforms/dingtalk.py` — DingTalk binding: `is_in_at_list` mention detection, registration (reduced capability — see [docs/dingtalk.md](docs/dingtalk.md)).
 - `src/hermes_tag/i18n.py` — locale strings.
 - `src/hermes_tag/adapter.py` — back-compat re-export shim.
 

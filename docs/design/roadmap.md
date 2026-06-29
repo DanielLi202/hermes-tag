@@ -86,6 +86,7 @@ core):**
 | A (shared) | `core.py`, `context.py`, `base.py`, `i18n.py` | selection, ranking, memory, prompt contract, consent text, dedup, scheduling decisions, governance/audit, ambient heuristic *(parked)* |
 | B (Slack) | `platforms/slack.py` | Slack mention detection, Slack evicted-parent reply-media, Slack manifest/setup |
 | B (Feishu) | `platforms/feishu.py` | Feishu mention detection, Feishu media fetch/download, Feishu setup |
+| B (DingTalk) | `platforms/dingtalk.py` *(v0.3.0)* | DingTalk mention detection (`is_in_at_list`), `handle_message`+`dispatch_to_model` override, reply-media stubs, DingTalk setup — see [0.3.0-dingtalk-plan.md](0.3.0-dingtalk-plan.md) |
 
 ### 1.3 Invariant policy
 
@@ -422,3 +423,10 @@ Every generic capability is Layer A; the only platform-specific work is F6 (Slac
 evicted-parent media no-op + optional fetch) and P1-B (Slack manifest script) —
 each strictly an adapter-side mechanism behind a seam. No generic logic lives in an
 adapter; no platform mechanism leaks into core.
+
+> **2026-06-29 update — v0.3.0 adds DingTalk as a third Layer B adapter.** The Layer B
+> table (§1.2) and this summary predate it and enumerate only Slack/Feishu. v0.3.0 adds
+> `platforms/dingtalk.py`, mirroring Slack's seam set (override `handle_message` +
+> `dispatch_to_model` + `is_mentioned`, reply-media stubs) — **Layer A and every
+> `PlatformSeam` signature stay unchanged (I7 holds)**. Full plan:
+> [0.3.0-dingtalk-plan.md](0.3.0-dingtalk-plan.md).

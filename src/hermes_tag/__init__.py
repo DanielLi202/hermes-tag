@@ -93,6 +93,12 @@ def register(ctx):
     except Exception:
         import logging
         logging.getLogger(__name__).warning("hermes-tag: slack platform registration skipped", exc_info=True)
+    try:
+        from .platforms.dingtalk import register as _register_dingtalk
+        _register_dingtalk(ctx)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("hermes-tag: dingtalk platform registration skipped", exc_info=True)
 
 def __getattr__(name: str):
     if name in _FEISHU_EXPORTS:

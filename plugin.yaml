@@ -3,7 +3,7 @@ manifest_version: 1
 name: hermes-tag
 label: Hermes Tag
 kind: platform
-version: 0.2.0
+version: 0.3.0
 description: Feishu platform override with per-chat Tier-0/Tier-1 context, standing work, and privacy lifecycle controls.
 author: lidongyuan
 requires_env:

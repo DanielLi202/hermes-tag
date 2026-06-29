@@ -24,7 +24,7 @@ Hermes Tag 是 Hermes 的一个 Claude-Tag 式**上下文选择层**，面向飞
 
 `ContextSelector` 通过 `focused_reply`、`thread`、`deictic_recent`、`plain` 四种范围选择**有界证据**，而不是把整段聊天记录塞给模型。这意味着没有全量历史 RAG，也不会无人 @ 就自动回复。
 
-**当前已交付 vs. 路线图。** 已交付：有界的多模态证据、Tier-0/Tier-1 记忆、按群隔离、管理员生命周期控制、脱敏审计——在飞书 / Lark 与 Slack 上。路线图：更深入的连接器 / 来源绑定能力。Claude-Tag 是我们对标与追赶的目标，而不是声称它的每个能力都已经交付。
+**当前已交付 vs. 路线图。** 已交付：有界的多模态证据、Tier-0/Tier-1 记忆、按群隔离、管理员生命周期控制、脱敏审计——在飞书 / Lark 与 Slack 上。钉钉也已支持，但**能力受限**：钉钉机器人在群里只能收到 @ 它的消息（没有飞书 `im:message.group_msg` 的等价权限），因此**群内环境上下文（Tier-0）在钉钉上不可用**——详见 [docs/dingtalk.md](docs/dingtalk.md)。路线图：更深入的连接器 / 来源绑定能力。Claude-Tag 是我们对标与追赶的目标，而不是声称它的每个能力都已经交付。
 
 本仓库、Python / pip 包名与清单名均为 `hermes-tag`。
 
@@ -75,7 +75,7 @@ platforms:
         encryption_posture: plaintext-db-on-local-disk
 ```
 
-完整安装与线上验证：见 [after-install.md](after-install.md)。Slack 接入：见 [docs/slack-setup.md](docs/slack-setup.md)。
+完整安装与线上验证：见 [after-install.md](after-install.md)。Slack 接入：见 [docs/slack-setup.md](docs/slack-setup.md)。钉钉接入与能力边界：见 [docs/dingtalk.md](docs/dingtalk.md)。
 
 ## 使用
 
@@ -105,6 +105,7 @@ platforms:
 - `src/hermes_tag/base.py` — TagAdapterMixin：平台无关的编排逻辑。
 - `src/hermes_tag/platforms/feishu.py` — 飞书绑定：@ 检测、媒体拉取 / 下载、注册。
 - `src/hermes_tag/platforms/slack.py` — Slack 绑定：@ 检测、媒体缓冲、注册。
+- `src/hermes_tag/platforms/dingtalk.py` — 钉钉绑定：`is_in_at_list` @ 检测、注册（能力受限——见 [docs/dingtalk.md](docs/dingtalk.md)）。
 - `src/hermes_tag/i18n.py` — 多语言字符串。
 - `src/hermes_tag/adapter.py` — 向后兼容的再导出垫片。
 
