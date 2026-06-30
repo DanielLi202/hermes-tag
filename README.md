@@ -81,8 +81,9 @@ Full onboarding + live verification: see [after-install.md](after-install.md). S
 
 In groups, `/tag` commands require @-mention.
 
-- `/tag status`
-- `/tag admin count|clear|disable|audit`
+- `/tag status` -> reports the adapter platform, capability flags such as `receive_all` / `cron_delivery`, and current per-chat metrics.
+- `/tag admin count` -> returns retained-state counts such as `tier0=... tier1=... standing_jobs=...`.
+- `/tag admin clear|disable|audit` -> clears plugin data, disables plugin storage for the chat, or returns redacted audit events.
 - `/tag standing add <schedule> <timezone> <description>` then `/tag standing confirm`
 - `/tag standing list|cancel <id>|pause <id>|enable <id>`
 
