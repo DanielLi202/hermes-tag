@@ -77,6 +77,8 @@ platforms:
 
 `bot_open_id` 和 `admins` 必须使用飞书 open_id（`ou_...`）。本插件不需要 `contact:user.employee_id:readonly`；即使授予该权限，也会把发送者身份规范化为 open_id。
 
+首次使用时，Hermes Tag 会实时核对 `granted_scopes` 与飞书应用实际权限；如果配置声明了 `im:message.group_msg` 但应用未实际持有，会私信已配置的管理员。这样可以直接暴露“未 @ 的群消息从未被投递，导致 Tier-0 群上下文退化为仅 @ 消息”的静默故障。
+
 完整安装与线上验证：见 [after-install.md](after-install.md)。Slack 接入：见 [docs/slack-setup.md](docs/slack-setup.md)。钉钉接入与能力边界：见 [docs/dingtalk.md](docs/dingtalk.md)。
 
 ## 使用

@@ -38,6 +38,16 @@ ENABLE_NOTICE = {
     "en": "All messages in this group, including from members who have never interacted with the bot, are recorded locally and buffered briefly; only relevant messages may enter the model when @ bot is mentioned; long-term memory only comes from @ interactions.",
 }
 
+CAPABILITY_MISMATCH_NOTICE = {
+    "zh": "配置声明已授予 im:message.group_msg，但飞书应用实际未持有该权限；未 @ 的群消息不会被投递，群上下文会退化为仅 @ 消息。请在开发者后台「权限管理」授予该权限并重新发布应用版本，或从插件配置 granted_scopes 移除它以关闭此提示。",
+    "en": "The config claims im:message.group_msg, but the Feishu app does not actually hold it; non-@ group messages are never delivered, so group context falls back to @-only. Grant the scope in Developer Console > Permissions and republish the app version, or remove it from plugin granted_scopes to silence this notice.",
+}
+
+CAPABILITY_UPGRADE_NOTICE = {
+    "zh": "飞书应用已持有 im:message.group_msg，但插件配置未声明它。请把该权限加入插件配置 granted_scopes，以启用完整群上下文。",
+    "en": "The Feishu app holds im:message.group_msg, but the plugin config does not claim it. Add the scope to plugin granted_scopes to enable full group context.",
+}
+
 PROMPT_CONTRACT = (
     "Use only current and channel_context as evidence; if evidence is missing or weak, say so. "
     "Do not infer from unrelated chat history."

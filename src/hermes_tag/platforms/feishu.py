@@ -160,6 +160,18 @@ class FeishuTagAdapter(TagAdapterMixin, FeishuAdapter):
                 pass
         return _is_mentioned(event, self.tag)
 
+    async def probe_granted_scopes(self) -> dict[str, bool] | None:
+        client = getattr(self, "_client", None)
+        run_blocking = getattr(self, "_run_blocking", None)
+        if client is None or run_blocking is None:
+            return None
+        try:
+            from lark_oapi.api.application.v6 import ListScopeRequest
+            response = await run_blocking(client.application.v6.scope.list, ListScopeRequest.builder().build())
+            return _scopes_from_response(response)
+        except Exception:
+            return None
+
     async def _extract_message_content(self, message: Any):
         text, inbound_type, media_urls, media_types, mentions = await super()._extract_message_content(message)
         text = _keep_pure_self_mention(text, inbound_type, media_urls, mentions)
@@ -327,6 +339,25 @@ def _keep_pure_self_mention(text: str, inbound_type: Any, media_urls: list[str],
     return "[Mentioned bot]" if not stripped else text
 
 
+def _scopes_from_response(response: Any) -> dict[str, bool] | None:
+    if not response:
+        return None
+    success = getattr(response, "success", None)
+    try:
+        if not callable(success) or not success():
+            return None
+    except Exception:
+        return None
+    scopes = getattr(getattr(response, "data", None), "scopes", None)
+    if scopes is None:
+        return None
+    return {
+        scope_name: getattr(scope, "grant_status", None) == 1
+        for scope in scopes
+        if (scope_name := getattr(scope, "scope_name", None))
+    }
+
+
 def _event_mentions(event: MessageEvent) -> list[Any]:
     raw = getattr(event, "raw_message", None)
     if raw is None:
@@ -372,6 +403,7 @@ __all__ = [
     "_merge_feishu_tag_extra",
     "_raw_feishu_message",
     "_raw_sender_open_id",
+    "_scopes_from_response",
     "adapter_factory",
     "apply_yaml_config",
     "assert_real_seams",
