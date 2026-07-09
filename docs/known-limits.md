@@ -60,7 +60,14 @@ Quick self-diagnosis:
   Feishu never delivers non-@ group messages — the bot is not broken, it is blind by permission.
   Since v0.4.0 the plugin live-verifies this scope against your app on first use and DMs the
   configured admins when the config claims a scope the app doesn't hold; `/tag status` shows the
-  verdict as `capability_check=ok|mismatch|upgrade_available|unknown`.
+  verdict as `capability_check=ok|mismatch|upgrade_available|unknown`. Example two-line output
+  when the check is clean:
+
+  ```text
+  status platform=FeishuTagAdapter tier0_full_ingest=True capability_check=ok
+  metrics author_normalized=0
+  ```
+
 - The plugin does **not** need `contact:user.employee_id:readonly`; sender identity is normalized
   to the app-scoped `open_id` regardless (see CHANGELOG v0.4.0).
 
