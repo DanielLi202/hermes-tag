@@ -79,7 +79,7 @@ platforms:
 
 On first use, Hermes Tag live-verifies `granted_scopes` against the Feishu app and DMs configured admins if the config claims `im:message.group_msg` but the app does not actually hold it. That catches the silent failure mode where non-@ group messages are never delivered, so Tier-0 group context stays @-only.
 
-Full onboarding + live verification: see [after-install.md](after-install.md). Slack setup: see [docs/slack-setup.md](docs/slack-setup.md). DingTalk setup + capability limits: see [docs/dingtalk.md](docs/dingtalk.md).
+Full onboarding + live verification: see [after-install.md](after-install.md). Slack setup: see [docs/slack-setup.md](docs/slack-setup.md). DingTalk setup + capability limits: see [docs/dingtalk.md](docs/dingtalk.md). Hitting something that looks broken? Check [docs/known-limits.md](docs/known-limits.md) — it maps common symptoms to Feishu-platform / hermes-core limits this plugin can't fix.
 
 ## Usage
 
