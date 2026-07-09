@@ -15,3 +15,13 @@ skills-lock.json
 
 # internal launch/marketing playbooks — keep out of the public repo
 docs/design/营销计划*.md
+
+# local Claude Code project state (worktrees, session settings)
+.claude/
+
+# internal shiling-pm deployment ops docs & staging — not plugin code
+docs/design/hermes-tag-positioning-plan.md
+docs/design/pm-action-staging/
+docs/design/pm-guardrail-staging/
+docs/design/pm-skill-staging/
+docs/design/shiling-pm-*.md
