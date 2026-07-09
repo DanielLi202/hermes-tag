@@ -79,7 +79,7 @@ platforms:
 
 首次使用时，Hermes Tag 会实时核对 `granted_scopes` 与飞书应用实际权限；如果配置声明了 `im:message.group_msg` 但应用未实际持有，会私信已配置的管理员。这样可以直接暴露“未 @ 的群消息从未被投递，导致 Tier-0 群上下文退化为仅 @ 消息”的静默故障。
 
-完整安装与线上验证：见 [after-install.md](after-install.md)。Slack 接入：见 [docs/slack-setup.md](docs/slack-setup.md)。钉钉接入与能力边界：见 [docs/dingtalk.md](docs/dingtalk.md)。遇到疑似故障？先查 [docs/known-limits.md](docs/known-limits.md)（英文）——它把常见症状对应到飞书平台 / hermes 核心的限制，这些不是本插件能修的。
+完整安装与线上验证：见 [after-install.zh-CN.md](after-install.zh-CN.md)（[English](after-install.md)）。Slack 接入：见 [docs/slack-setup.md](docs/slack-setup.md)。钉钉接入与能力边界：见 [docs/dingtalk.md](docs/dingtalk.md)。遇到疑似故障？先查 [docs/known-limits.md](docs/known-limits.md)（英文）——它把常见症状对应到飞书平台 / hermes 核心的限制，这些不是本插件能修的。
 
 ## 使用
 
