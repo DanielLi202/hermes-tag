@@ -6,7 +6,7 @@
 
 [English](README.md) · [中文](README.zh-CN.md)
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Version: 0.2.0](https://img.shields.io/badge/version-0.2.0-blue.svg) ![hermes-agent: v2026.6.19](https://img.shields.io/badge/hermes--agent-v2026.6.19-blue.svg) ![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-blue.svg) ![hermes-agent: tested against v2026.6.19](https://img.shields.io/badge/hermes--agent-tested%20against%20v2026.6.19-blue.svg) ![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 
 <p align="center"><img src="docs/demo.zh.gif" alt="在飞书群里先发三张图、再补几句说明、夹一句无关的「中午吃饭」，最后才 @ Hermes Tag——它在对话内回复，综合三张图的原图、你的说明和相关讨论，按编号给出关键结论，无关的那句不进结论。" width="760"></p>
 
