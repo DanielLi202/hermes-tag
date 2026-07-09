@@ -75,6 +75,8 @@ platforms:
         encryption_posture: plaintext-db-on-local-disk
 ```
 
+`bot_open_id` and `admins` must be Feishu open_id values (`ou_...`). This plugin does not need `contact:user.employee_id:readonly`; it normalizes sender identity to open_id even when that scope is granted.
+
 Full onboarding + live verification: see [after-install.md](after-install.md). Slack setup: see [docs/slack-setup.md](docs/slack-setup.md). DingTalk setup + capability limits: see [docs/dingtalk.md](docs/dingtalk.md).
 
 ## Usage

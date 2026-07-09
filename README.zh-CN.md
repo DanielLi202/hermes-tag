@@ -75,6 +75,8 @@ platforms:
         encryption_posture: plaintext-db-on-local-disk
 ```
 
+`bot_open_id` 和 `admins` 必须使用飞书 open_id（`ou_...`）。本插件不需要 `contact:user.employee_id:readonly`；即使授予该权限，也会把发送者身份规范化为 open_id。
+
 完整安装与线上验证：见 [after-install.md](after-install.md)。Slack 接入：见 [docs/slack-setup.md](docs/slack-setup.md)。钉钉接入与能力边界：见 [docs/dingtalk.md](docs/dingtalk.md)。
 
 ## 使用
