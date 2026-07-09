@@ -146,6 +146,7 @@ class TagAdapterMixin:
                 "tier1_write_failure": self.store.metric("tier1_write_failure"),
                 "tier1_write_skipped_duplicate": self.store.metric("tier1_write_skipped_duplicate"),
                 "slack_reply_media_unavailable": self.store.metric("slack_reply_media_unavailable"),
+                "author_normalized": self.store.metric("author_normalized"),
                 "session_reset_degraded": self.store.metric("session_reset_degraded"),
                 "command_send_failure": self.store.metric("command_send_failure"),
                 "media_download_success": self.store.metric("media_download_success"),
@@ -167,6 +168,9 @@ class TagAdapterMixin:
     @property
     def cron_delivery(self) -> bool:
         return True
+
+    def normalize_inbound_identity(self, event: MessageEvent) -> MessageEvent:
+        return event
 
     def handle_command(self, event: MessageEvent) -> Any | None:
         return self._maybe_handle_command(event)

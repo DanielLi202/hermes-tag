@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import importlib
 import json
 import os
@@ -130,6 +130,23 @@ class FeishuTagAdapter(TagAdapterMixin, FeishuAdapter):
     @property
     def receive_all(self) -> bool:
         return self.tag.has_group_msg_scope
+
+    def normalize_inbound_identity(self, event: MessageEvent) -> MessageEvent:
+        open_id = _raw_sender_open_id(event)
+        if not open_id:
+            return event
+        source = getattr(event, "source", None)
+        if getattr(source, "user_id", "") == open_id:
+            return event
+        try:
+            source.user_id = open_id
+        except Exception:
+            try:
+                event.source = replace(source, user_id=open_id)
+            except Exception:
+                return event
+        self.store.inc("author_normalized")
+        return event
 
     def is_mentioned(self, event: MessageEvent) -> bool:
         if getattr(getattr(event, "source", None), "chat_type", "") == "dm":
@@ -272,6 +289,22 @@ def adapter_factory(config: PlatformConfig) -> FeishuAdapter:
         return FeishuAdapter(config)
 
 
+def _node_get(node: Any, key: str) -> Any:
+    value = getattr(node, key, None)
+    if value is not None:
+        return value
+    return node.get(key) if isinstance(node, dict) else None
+
+
+def _raw_sender_open_id(event: Any) -> str:
+    node = event
+    for key in ("raw_message", "event", "sender", "sender_id", "open_id"):
+        node = _node_get(node, key)
+        if node is None:
+            return ""
+    return node if isinstance(node, str) and node.startswith("ou_") else ""
+
+
 def _is_mentioned(event: MessageEvent, config: FeishuTagConfig) -> bool:
     if getattr(getattr(event, "source", None), "chat_type", "") == "dm":
         return True
@@ -338,6 +371,7 @@ __all__ = [
     "_load_base_feishu_module",
     "_merge_feishu_tag_extra",
     "_raw_feishu_message",
+    "_raw_sender_open_id",
     "adapter_factory",
     "apply_yaml_config",
     "assert_real_seams",
