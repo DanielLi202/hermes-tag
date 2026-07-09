@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 from dataclasses import is_dataclass, replace
 from pathlib import Path
 import inspect
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -14,12 +16,14 @@ from typing import Any
 
 from .context import ContextSelector
 from .core import TagConfig as FeishuTagConfig, TagEngine, TagStore as FeishuTagStore, near_duplicate_summary
-from .i18n import ENABLE_NOTICE, PROMPT_CONTRACT
+from .i18n import CAPABILITY_MISMATCH_NOTICE, CAPABILITY_UPGRADE_NOTICE, ENABLE_NOTICE, PROMPT_CONTRACT
 
 HERMES_TAG = "v2026.6.19"
 HERMES_COMMIT = "2bd1977d8fad185c9b4be47884f7e87f1add0ce3"
 LARK_OAPI_VERSION = "1.6.9"
 BOUNDARY_TEXT = "enabled_chats is the storage/processing boundary, not the receive boundary"
+REQUIRED_GROUP_SCOPE = "im:message.group_msg"
+logger = logging.getLogger(__name__)
 _TAG_HELP = [
     "/tag admin count",
     "/tag admin audit",
@@ -101,6 +105,8 @@ class TagAdapterMixin:
         self.cron_api = cron_api or HermesCronAPI(self.platform_name)
         self.pending_jobs: dict[tuple[str, str], dict[str, str]] = {}
         self.notified_chats: set[str] = set()
+        self.capability_check: dict[str, Any] = {"status": "pending"}
+        self._capability_check_started = False
         assert_real_seams(self, self.cron_api)
         self.engine = TagEngine(self.tag, self.store, self)
         self.pending_tier1 = self.engine.pending
@@ -128,6 +134,7 @@ class TagAdapterMixin:
             "enabled_chats": list(self.tag.enabled_chats),
             "boundary": BOUNDARY_TEXT,
             "encryption_posture": self.tag.encryption_posture,
+            "capability_check": dict(self.capability_check),
             "capabilities": {
                 "tier0_full_ingest": self.tag.uses_tier0_context,
                 "l2_context": self.tag.uses_tier0_context,
@@ -161,8 +168,10 @@ class TagAdapterMixin:
         }
 
     async def _dispatch_inbound_event(self, event: MessageEvent) -> Any:
-        if _chat_id(event) not in self.tag.enabled_chats:
+        chat_id = _chat_id(event)
+        if chat_id not in self.tag.enabled_chats:
             return await super()._dispatch_inbound_event(event)
+        await self._maybe_verify_capabilities(chat_id)
         return await self.engine.handle_message(event)
 
     @property
@@ -171,6 +180,50 @@ class TagAdapterMixin:
 
     def normalize_inbound_identity(self, event: MessageEvent) -> MessageEvent:
         return event
+
+    async def probe_granted_scopes(self) -> dict[str, bool] | None:
+        return None
+
+    async def _maybe_verify_capabilities(self, chat_id: str) -> None:
+        try:
+            if self._capability_check_started:
+                return
+            self._capability_check_started = True
+            try:
+                scopes = await asyncio.wait_for(self.probe_granted_scopes(), timeout=5)
+            except Exception:
+                self.capability_check = {"status": "unknown"}
+                logger.debug("Feishu scope probe failed", exc_info=True)
+                return
+            if scopes is None:
+                self.capability_check = {"status": "unknown"}
+                logger.debug("Feishu scope probe unavailable")
+                return
+
+            claimed = self.tag.has_group_msg_scope
+            live = bool(scopes.get(REQUIRED_GROUP_SCOPE))
+            detail = {"scope": REQUIRED_GROUP_SCOPE, "claimed": claimed, "live": live}
+            if claimed and not live:
+                status = "mismatch"
+                self.store.audit("capability_mismatch", chat_id, json.dumps(detail, ensure_ascii=False))
+                logger.warning("Feishu capability mismatch: %s", detail)
+                await self._notify_admins(CAPABILITY_MISMATCH_NOTICE["zh"])
+            elif live and not claimed:
+                status = "upgrade_available"
+                self.store.audit("capability_upgrade", chat_id, json.dumps(detail, ensure_ascii=False))
+                await self._notify_admins(CAPABILITY_UPGRADE_NOTICE["zh"])
+            else:
+                status = "ok"
+            self.capability_check = {"status": status, **detail}
+        except Exception:
+            logger.debug("Feishu capability verification crashed", exc_info=True)
+
+    async def _notify_admins(self, notice: str) -> None:
+        for admin_id in self.tag.admins:
+            try:
+                await self.send(admin_id, notice)
+            except Exception:
+                logger.debug("Feishu capability notice failed for admin %s", admin_id, exc_info=True)
 
     def handle_command(self, event: MessageEvent) -> Any | None:
         return self._maybe_handle_command(event)

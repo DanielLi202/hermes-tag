@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Verify the Feishu `im:message.group_msg` grant once per process and alert admins when config and app permissions disagree.
+
 ### Fixed
 
 - Normalize Feishu inbound sender identity to scope-independent open_id (`ou_...`), keeping admin checks and stored authors stable even when employee-id scope is granted.
