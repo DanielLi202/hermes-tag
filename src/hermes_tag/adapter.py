@@ -42,8 +42,12 @@ from .platforms.feishu import (
     apply_yaml_config,
     check_requirements,
     normalize_feishu_message,
-    register,
 )
+
+# The package-level register (tag command + feishu/slack/dingtalk), not the
+# feishu-only one — 712968e moved command registration up to __init__ but left
+# this shim exporting platforms.feishu.register, so adapter.register lost /tag.
+from . import register
 
 __all__ = [
     "FeishuTagAdapter",
