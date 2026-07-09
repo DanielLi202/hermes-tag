@@ -6,7 +6,7 @@ Use Hermes to bring Claude-Tag-style capability to your Feishu/Lark (and Slack).
 
 [English](README.md) · [中文](README.zh-CN.md)
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Version: 0.2.0](https://img.shields.io/badge/version-0.2.0-blue.svg) ![hermes-agent: v2026.6.19](https://img.shields.io/badge/hermes--agent-v2026.6.19-blue.svg) ![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-blue.svg) ![hermes-agent: tested against v2026.6.19](https://img.shields.io/badge/hermes--agent-tested%20against%20v2026.6.19-blue.svg) ![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 
 <p align="center"><img src="docs/demo.en.gif" alt="In a Feishu/Lark group you post three charts, add a few notes, drop an unrelated 'Lunch at 12?' line, then @ Hermes Tag last — it answers in-thread with numbered key takeaways drawn from the charts' originals, your notes, and the relevant discussion, and flags the unrelated line as not a conclusion." width="760"></p>
 
