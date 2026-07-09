@@ -411,6 +411,9 @@ def format_command_result(result: Any) -> str:
             capabilities = status.get("capabilities", {}) or {}
             metrics = status.get("metrics", {}) or {}
             capability_text = " ".join(f"{key}={value}" for key, value in sorted(capabilities.items()))
+            check = status.get("capability_check") or {}
+            if isinstance(check, dict) and check.get("status"):
+                capability_text = f"{capability_text} capability_check={check['status']}".strip()
             metric_text = " ".join(f"{key}={value}" for key, value in sorted(metrics.items()))
             platform = status.get("platform") or status.get("adapter") or ""
             return f"status platform={platform} {capability_text}\nmetrics {metric_text}".strip()

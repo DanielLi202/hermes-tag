@@ -184,6 +184,15 @@ class CapabilityCheckTest(unittest.TestCase):
 
         self.assertEqual(adapter.preflight_status()["capability_check"], adapter.capability_check)
 
+    def test_status_command_renders_capability_check(self):
+        from hermes_tag.core import format_command_result
+
+        adapter = ProbeAdapter(SimpleNamespace(extra={}), tag_config(), {"im:message.group_msg": True})
+        asyncio.run(adapter._dispatch_inbound_event(event()))
+
+        rendered = format_command_result({"status": adapter.preflight_status()})
+        self.assertIn("capability_check=ok", rendered.splitlines()[0])
+
 
 if __name__ == "__main__":
     unittest.main()

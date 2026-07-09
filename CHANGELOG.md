@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Verify the Feishu `im:message.group_msg` grant once per process and alert admins when config and app permissions disagree.
+- `docs/known-limits.md` mapping common "bot looks broken" symptoms to Feishu-platform / hermes-core limits, linked from both READMEs.
+- `/tag status` now renders the capability-check verdict (`capability_check=ok|mismatch|upgrade_available|unknown`).
 
 ### Fixed
 
