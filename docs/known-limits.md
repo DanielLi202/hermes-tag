@@ -70,3 +70,8 @@ Interactive card rendering, native CardKit streaming, and markdown-table cards a
 CardKit/API territory and hermes-agent core's rendering decision — this plugin deliberately stays a
 context/memory layer. See the positioning notes in
 [docs/design/feishu-pain-points-research.md](design/feishu-pain-points-research.md).
+
+## Slack native slash commands
+
+Slack limits app manifests to 50 slash commands. On command-heavy installs native `/tag`
+may be truncated. Use `@bot /tag ...` in the channel instead; the message handler is unaffected.

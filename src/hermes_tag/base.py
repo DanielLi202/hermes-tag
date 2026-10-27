@@ -15,12 +15,12 @@ import time
 from typing import Any
 
 from .context import ContextSelector
-from .core import TagConfig as FeishuTagConfig, TagEngine, TagStore as FeishuTagStore, near_duplicate_summary
+from .core import TagConfig as FeishuTagConfig, TagEngine, TagStore as FeishuTagStore, copy_event, near_duplicate_summary
 from .i18n import CAPABILITY_MISMATCH_NOTICE, CAPABILITY_UPGRADE_NOTICE, ENABLE_NOTICE, PROMPT_CONTRACT
 
-HERMES_TAG = "v2026.6.19"
-HERMES_COMMIT = "2bd1977d8fad185c9b4be47884f7e87f1add0ce3"
-LARK_OAPI_VERSION = "1.6.9"
+HERMES_TAG = "v0.22.5"
+HERMES_COMMIT = "bf0203a794a07aac3ff764972ab9087baa4e4f4e"
+LARK_OAPI_VERSION = "1.6.8"
 BOUNDARY_TEXT = "enabled_chats is the storage/processing boundary, not the receive boundary"
 REQUIRED_GROUP_SCOPE = "im:message.group_msg"
 logger = logging.getLogger(__name__)
@@ -37,6 +37,22 @@ _TAG_HELP = [
     "/tag standing enable <job_id>",
     "/tag status",
 ]
+
+
+def capture_platform_registration(module: Any) -> dict[str, Any]:
+    calls = []
+
+    class Capture:
+        def register_platform(self, **kwargs):
+            calls.append(kwargs)
+
+        def __getattr__(self, name):
+            raise RuntimeError(f"Bundled register() accessed unsupported context attribute: {name}")
+
+    module.register(Capture())
+    if len(calls) != 1:
+        raise RuntimeError(f"Bundled register() must register exactly one platform, got {len(calls)}")
+    return calls[0]
 
 
 class HermesCronAPI:
@@ -297,9 +313,15 @@ class TagAdapterMixin:
             + [row["message_id"] for row in pack.media_rows]
             + ([explicit_anchor_id] if explicit_anchor_id else [])
         )
-        enhanced = _copy_event(event)
+        enhanced = copy_event(event)
         enhanced.media_urls = list(event.media_urls) + parent_urls + related_media_urls
         enhanced.media_types = list(event.media_types) + parent_types + related_media_types
+        enhanced.media_text_inlined = list(getattr(event, "media_text_inlined", []))
+        enhanced.media_text_inlined += [None] * (len(event.media_urls) - len(enhanced.media_text_inlined))
+        enhanced.media_text_inlined += [False] * (len(parent_urls) + len(related_media_urls))
+        native_context = getattr(event, "channel_context", None)
+        if self.platform_name == "slack" and native_context:
+            background.insert(0, native_context)
         enhanced.channel_context = self._budget_context(event.text, placeholders, background, memories)
         setattr(enhanced, "tier1_context", memories)
         setattr(enhanced, "l2_context", background)
@@ -735,32 +757,8 @@ def _author(event: MessageEvent) -> str:
 def _thread_id(event: MessageEvent) -> str | None:
     return getattr(getattr(event, "source", None), "thread_id", None) or getattr(event, "thread_id", None)
 
-def _copy_event(event: Any) -> Any:
-    cls = type(event)
-    kwargs = {
-        "text": event.text,
-        "message_type": getattr(event, "message_type", "text"),
-        "source": getattr(event, "source", None),
-        "raw_message": getattr(event, "raw_message", None),
-        "message_id": getattr(event, "message_id", None),
-        "media_urls": list(getattr(event, "media_urls", []) or []),
-        "media_types": list(getattr(event, "media_types", []) or []),
-        "reply_to_message_id": getattr(event, "reply_to_message_id", None),
-        "reply_to_text": getattr(event, "reply_to_text", None),
-        "channel_context": getattr(event, "channel_context", None),
-    }
-    try:
-        return cls(**kwargs)
-    except Exception:
-        copied = copy.copy(event)
-        if hasattr(copied, "media_urls"):
-            copied.media_urls = list(getattr(copied, "media_urls", []) or [])
-        if hasattr(copied, "media_types"):
-            copied.media_types = list(getattr(copied, "media_types", []) or [])
-        return copied
-
 def _command_event(event: MessageEvent, text: str) -> MessageEvent:
-    copied = _copy_event(event)
+    copied = copy_event(event)
     copied.text = text
     return copied
 
@@ -837,7 +835,6 @@ __all__ = [
     "_author",
     "_chat_id",
     "_command_event",
-    "_copy_event",
     "_dedupe",
     "_get_nested",
     "_normalize_schedule",

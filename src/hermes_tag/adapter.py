@@ -11,7 +11,6 @@ from .base import (
     _author,
     _chat_id,
     _command_event,
-    _copy_event,
     _dedupe,
     _get_nested,
     _normalize_schedule,
@@ -24,23 +23,19 @@ from .base import (
 )
 from .core import TagConfig as FeishuTagConfig, TagEngine, TagStore as FeishuTagStore
 from .platforms.feishu import (
-    BASE_FEISHU_IMPORT_ERROR,
     BASE_FEISHU_MODULE,
-    FEISHU_AVAILABLE,
     FeishuAdapter,
     FeishuTagAdapter,
     MessageEvent,
     MessageType,
     PlatformConfig,
     _event_mentions,
-    _is_connected,
     _is_mentioned,
     _load_base_feishu_module,
     _merge_feishu_tag_extra,
     _raw_feishu_message,
     adapter_factory,
     apply_yaml_config,
-    check_requirements,
     normalize_feishu_message,
 )
 
@@ -57,7 +52,6 @@ __all__ = [
     "MessageEvent",
     "PlatformConfig",
     "register",
-    "check_requirements",
     "assert_real_seams",
     "apply_yaml_config",
 ]

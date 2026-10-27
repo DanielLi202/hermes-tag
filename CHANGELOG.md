@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - Unreleased
+
+### Changed
+
+- Require Hermes >=0.22.5 (tested at v0.22.5), Python 3.14, and the upstream lark-oapi 1.6.8 pin.
+- Preserve bundled platform registration, six-part Feishu extraction, event fields, and Slack native thread context.
+- Default SQLite storage is now `<hermes home>/plugin-data/hermes-tag/<platform>-tag.sqlite3`,
+  with its matching `.media` directory. No automatic migration: stop the gateway and move both
+  from the old gateway working directory as described in after-install.md. Explicit `db_path` is unchanged.
+- Remove the Slack native slash-command patch; use `@bot /tag ...` if Slack's 50-command limit truncates `/tag`.
+- Contract stubs are opt-in; CI also checks real Hermes v0.22.5 validation, install, and runtime compatibility.
+
 ## [0.4.0] - 2026-07-09
 
 ### Added

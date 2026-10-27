@@ -1,11 +1,12 @@
-# Hermes v2026.6.19 installer accepts manifest_version 1; values above 1 are rejected.
+# Hermes v0.22.5 supports manifest_version 1.
 manifest_version: 1
 name: hermes-tag
 label: Hermes Tag
 kind: platform
-version: 0.4.0
+version: 0.5.0
 description: Feishu platform override with per-chat Tier-0/Tier-1 context, standing work, and privacy lifecycle controls.
 author: lidongyuan
 requires_env:
   - FEISHU_APP_ID
   - FEISHU_APP_SECRET
+requires_hermes: ">=0.22.5"
