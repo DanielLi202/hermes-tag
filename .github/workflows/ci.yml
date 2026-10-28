@@ -50,7 +50,8 @@ jobs:
         working-directory: plugin
         run: |
           mkdir -p "$RUNNER_TEMP/hermes-tag"
-          git ls-files -co --exclude-standard | rsync -a --files-from=- . "$RUNNER_TEMP/hermes-tag/"
+          # NUL-separated: the default output quotes non-ASCII paths (core.quotePath), which rsync cannot resolve.
+          git ls-files -z -co --exclude-standard | rsync -a --from0 --files-from=- . "$RUNNER_TEMP/hermes-tag/"
       - name: Validate with dependency preparation
         working-directory: ${{ runner.temp }}/hermes-tag
         shell: bash
