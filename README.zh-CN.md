@@ -6,7 +6,7 @@
 
 [English](README.md) · [中文](README.zh-CN.md)
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-blue.svg) ![hermes-agent: tested against v2026.6.19](https://img.shields.io/badge/hermes--agent-tested%20against%20v2026.6.19-blue.svg) ![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg) ![Version: 0.5.0](https://img.shields.io/badge/version-0.5.0-blue.svg) ![hermes-agent: tested against v0.22.5](https://img.shields.io/badge/hermes--agent-tested%20against%20v0.22.5-blue.svg) ![Python: 3.14](https://img.shields.io/badge/python-3.14-blue.svg)
 
 <p align="center"><img src="docs/demo.zh.gif" alt="在飞书群里先发三张图、再补几句说明、夹一句无关的「中午吃饭」，最后才 @ Hermes Tag——它在对话内回复，综合三张图的原图、你的说明和相关讨论，按编号给出关键结论，无关的那句不进结论。" width="760"></p>
 
@@ -43,12 +43,12 @@ Hermes Tag 是 Hermes 的一个 Claude-Tag 式**上下文选择层**，面向飞
 
 | 项 | 要求 |
 | --- | --- |
-| hermes-agent | `v2026.6.19` |
-| lark-oapi | `1.6.9` |
-| Python | `>=3.11` |
+| hermes-agent | `>=0.22.5` (tested: `v0.22.5`) |
+| lark-oapi | `1.6.8` |
+| Python | `3.14` |
 | 必需环境变量 | `FEISHU_APP_ID` + `FEISHU_APP_SECRET` |
 
-这些版本固定是项目约定；Hermes 没有强制的兼容性机制。
+Hermes 会检查 manifest 中的 `requires_hermes: ">=0.22.5"` 要求。
 
 ## 快速开始（<60 秒）
 

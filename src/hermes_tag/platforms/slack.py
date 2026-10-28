@@ -3,56 +3,27 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import importlib
 import os
+from types import SimpleNamespace
 from typing import Any
 
-from ..base import HermesCronAPI, TagAdapterMixin, assert_real_seams
-from ..core import TagConfig, TagStore
+from ..base import HermesCronAPI, TagAdapterMixin, assert_real_seams, capture_platform_registration
+from ..core import TagConfig, TagStore, default_db_path
 
 BASE_SLACK_MODULE = ""
-BASE_SLACK_IMPORT_ERROR = ""
-SLACK_AVAILABLE = False
 
 
 def _load_base_slack_module() -> Any:
-    # Mirror feishu.py: newer Hermes builds expose the platform at
-    # plugins.platforms.slack.adapter; the v2026.6.19 tag keeps it at
-    # gateway.platforms.slack. Try both so the pinned install isn't a stub.
-    errors: list[str] = []
-    for module_name in ("plugins.platforms.slack.adapter", "gateway.platforms.slack"):
-        try:
-            return importlib.import_module(module_name)
-        except Exception as exc:
-            errors.append(f"{module_name}: {type(exc).__name__}: {exc}")
-    raise ImportError("; ".join(errors))
+    return importlib.import_module("plugins.platforms.slack.adapter")
 
 
-try:  # real Hermes path
-    if os.getenv("HERMES_PLUGIN_SLACK_USE_STUBS"):
-        raise ImportError("forced stub mode")
+if os.getenv("HERMES_PLUGIN_SLACK_USE_STUBS") != "1":
     from gateway.config import PlatformConfig
     from gateway.platforms.base import MessageEvent, MessageType
 
     _base_slack = _load_base_slack_module()
     BASE_SLACK_MODULE = getattr(_base_slack, "__name__", "")
-    SLACK_AVAILABLE = bool(getattr(_base_slack, "SLACK_AVAILABLE", False))
     SlackAdapter = getattr(_base_slack, "SlackAdapter")
-    _base_check_requirements = getattr(_base_slack, "check_slack_requirements", lambda: SLACK_AVAILABLE)
-    # gateway.platforms.slack (old layout) has no _build_adapter; native new-layout
-    # _build_adapter is just `SlackAdapter(config)`, so the default matches it.
-    _base_build_adapter = getattr(_base_slack, "_build_adapter", lambda config: SlackAdapter(config))
-    _base_is_connected = getattr(_base_slack, "_is_connected", None)
-    _base_interactive_setup = getattr(_base_slack, "interactive_setup", None)
-    _base_apply_yaml_config = getattr(_base_slack, "_apply_yaml_config", None)
-    _base_standalone_send = getattr(_base_slack, "_standalone_send", None)
-except Exception:  # local tests / scaffold path
-    BASE_SLACK_IMPORT_ERROR = "base Slack adapter is unavailable"
-    SLACK_AVAILABLE = False
-    _base_check_requirements = lambda: SLACK_AVAILABLE
-    _base_is_connected = None
-    _base_interactive_setup = None
-    _base_apply_yaml_config = None
-    _base_standalone_send = None
-
+else:  # explicit contract stubs
     class PlatformConfig:  # type: ignore[no-redef]
         def __init__(self, extra: dict[str, Any] | None = None):
             self.extra = extra or {}
@@ -69,6 +40,10 @@ except Exception:  # local tests / scaffold path
         message_id: str | None = None
         media_urls: list[str] = field(default_factory=list)
         media_types: list[str] = field(default_factory=list)
+        media_text_inlined: list[bool | None] = field(default_factory=list)
+        channel_prompt: str | None = None
+        auto_skill: str | list[str] | None = None
+        metadata: dict[str, Any] = field(default_factory=dict)
         reply_to_message_id: str | None = None
         reply_to_text: str | None = None
         channel_context: str | None = None
@@ -92,8 +67,18 @@ except Exception:  # local tests / scaffold path
             self.sent.append((chat_id, content))
             return {"chat_id": chat_id, "content": content, "reply_to": reply_to, "metadata": metadata}
 
-    def _base_build_adapter(config: PlatformConfig) -> SlackAdapter:  # type: ignore[no-redef]
-        return SlackAdapter(config)
+    def _stub_register(ctx):
+        ctx.register_platform(
+            name="slack", label="Slack", adapter_factory=SlackAdapter,
+            check_fn=lambda: False, apply_yaml_config_fn=lambda yaml_cfg, platform_cfg: None,
+        )
+
+    _base_slack = SimpleNamespace(register=_stub_register)
+
+
+_base_registration = capture_platform_registration(_base_slack)
+_base_apply_yaml_config = _base_registration["apply_yaml_config_fn"]
+_base_build_adapter = _base_registration["adapter_factory"]
 
 
 def _slack_tag_extra(config: Any) -> dict[str, Any]:
@@ -106,7 +91,7 @@ def _slack_tag_config(config: Any) -> TagConfig:
     data = _slack_tag_extra(config)
     return TagConfig(
         enabled_chats=tuple(data.get("enabled_chats") or ()),
-        db_path=str(data.get("db_path") or "slack-tag.sqlite3"),
+        db_path=str(data.get("db_path") or default_db_path("slack")),
         granted_scopes=frozenset(data.get("granted_scopes") or ()),
         encryption_posture=str(data.get("encryption_posture") or "plaintext-db-on-local-disk").strip(),
         max_context_chars=int(data.get("max_context_chars") or 4000),
@@ -198,22 +183,6 @@ def _is_tag_command(event: Any) -> bool:
     return command in {"tag", "standing", "admin"} or text == "/tag" or text.startswith(("/tag ", "/standing", "/admin"))
 
 
-def check_requirements() -> bool:
-    try:
-        return bool(_base_check_requirements())
-    except Exception:
-        return False
-
-
-def _is_connected(config: Any) -> bool:
-    if callable(_base_is_connected):
-        try:
-            return bool(_base_is_connected(config))
-        except Exception:
-            pass
-    return bool(os.getenv("SLACK_BOT_TOKEN", "").strip())
-
-
 def _merge_slack_tag_extra(target: dict[str, Any], source: Any) -> None:
     if not isinstance(source, dict):
         return
@@ -224,10 +193,9 @@ def _merge_slack_tag_extra(target: dict[str, Any], source: Any) -> None:
 
 def apply_yaml_config(yaml_cfg: dict, slack_cfg: dict) -> dict | None:
     seeded: dict[str, Any] = {}
-    if callable(_base_apply_yaml_config):
-        base_seeded = _base_apply_yaml_config(yaml_cfg, slack_cfg)
-        if isinstance(base_seeded, dict):
-            seeded.update(base_seeded)
+    base_seeded = _base_apply_yaml_config(yaml_cfg, slack_cfg)
+    if isinstance(base_seeded, dict):
+        seeded.update(base_seeded)
 
     _merge_slack_tag_extra(seeded, slack_cfg)
     extra = slack_cfg.get("extra") if isinstance(slack_cfg, dict) else None
@@ -249,28 +217,12 @@ def adapter_factory(config: PlatformConfig) -> SlackAdapter:
 
 
 def register(ctx: Any) -> None:
-    ctx.register_platform(
-        name="slack",
-        label="Slack Tag",
-        adapter_factory=adapter_factory,
-        check_fn=check_requirements,
-        is_connected=_is_connected,
-        required_env=["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"],
-        install_hint="pip install 'hermes-agent[slack]'",
-        setup_fn=_base_interactive_setup,
-        apply_yaml_config_fn=apply_yaml_config,
-        cron_deliver_env_var="SLACK_HOME_CHANNEL",
-        standalone_sender_fn=_base_standalone_send,
-        max_message_length=39000,
-        emoji="🏷️",
-        allow_update_command=True,
-    )
+    ctx.register_platform(**{**_base_registration, "label": "Hermes Tag",
+                             "adapter_factory": adapter_factory, "apply_yaml_config_fn": apply_yaml_config})
 
 
 __all__ = [
-    "BASE_SLACK_IMPORT_ERROR",
     "BASE_SLACK_MODULE",
-    "SLACK_AVAILABLE",
     "HermesCronAPI",
     "MessageEvent",
     "MessageType",
@@ -279,13 +231,11 @@ __all__ = [
     "SlackTagAdapter",
     "TagConfig",
     "TagStore",
-    "_is_connected",
     "_load_base_slack_module",
     "_merge_slack_tag_extra",
     "_slack_tag_config",
     "adapter_factory",
     "apply_yaml_config",
     "assert_real_seams",
-    "check_requirements",
     "register",
 ]

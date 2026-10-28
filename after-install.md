@@ -31,7 +31,7 @@ Set these in the same environment as Hermes:
 - `SLACK_BOT_TOKEN` (only when enabling Slack)
 - `SLACK_APP_TOKEN` (only when enabling Slack Socket Mode)
 
-`lark-oapi==1.6.9` is expected from the pinned Hermes Feishu environment.
+**Python 3.14** and `lark-oapi==1.6.8` are expected from the pinned Hermes Feishu environment.
 
 ## Minimal config
 
@@ -90,9 +90,9 @@ platforms:
         admins:
           - U_YOUR_USER_ID
         encryption_posture: plaintext-db-on-local-disk
-        # db_path / media_cache_dir are optional — omit to use the per-profile defaults.
+        # db_path / media_cache_dir are optional — omit to use the per-profile plugin-data/hermes-tag defaults.
         # Set ABSOLUTE paths only to override, e.g.:
-        #   db_path: /ABSOLUTE/PATH/slack-tag.sqlite3
+        #   db_path: /ABSOLUTE/HERMES_HOME/plugin-data/hermes-tag/slack-tag.sqlite3
         #   media_cache_dir: /ABSOLUTE/PATH/slack-tag-media
 ```
 
@@ -238,13 +238,14 @@ profile and Feishu IDs.
    should not answer from the old Hermes session. If it does, inspect:
 
    ```bash
-   sqlite3 ~/.hermes/profiles/PROFILE/feishu-tag.sqlite3 \
+   sqlite3 ~/.hermes/profiles/PROFILE/plugin-data/hermes-tag/feishu-tag.sqlite3 \
      "select event, chat_id, detail from audit_events order by id desc limit 20;"
 
    python - <<'PY'
    import json
+   import os
    p = "~/.hermes/profiles/PROFILE/sessions/sessions.json"
-   data = json.load(open(p.replace("~", __import__("os").path.expanduser("~"))))
+   data = json.load(open(os.path.expanduser(p)))
    for key, value in data.items():
        if "CHAT_ID" in key:
            print(key, value.get("session_id"), value.get("updated_at"))
@@ -323,3 +324,34 @@ Run this sequence for each profile that enables Slack. Replace `PROFILE`, `CHANN
 
 - Slackbot says `/tag` is not a valid command: regenerate `hermes slack manifest` after `hermes-tag` is enabled, save it in Slack App Manifest, and reinstall the app if prompted.
 - Slackbot says `/tag` failed because the app did not respond: the manifest is saved, but the running Socket Mode matcher is stale. Restart the gateway and verify `/tag` appears after running `docs/slack-manifest-add-tag.py` on the generated manifest.
+
+## Upgrading from v0.4.0: move retained data once
+
+Hermes Tag v0.5.0 requires Hermes >=0.22.5 with Python 3.14. With no explicit `db_path`,
+all platforms now store their SQLite file under `<hermes home>/plugin-data/hermes-tag/`;
+the matching `.media` directory follows that path. Explicit `db_path` values are unchanged.
+There is **no automatic migration**. Without this move, the new default opens an empty DB.
+
+Stop the target profile's gateway before moving anything. Record its old working directory
+(the v0.4.0 relative default was opened there), then substitute the actual directories below:
+
+```bash
+hermes --profile PROFILE gateway stop
+OLD_CWD=/absolute/old/gateway/working-directory
+PROFILE_HOME=/absolute/hermes/home/for/PROFILE
+mkdir -p "$PROFILE_HOME/plugin-data/hermes-tag"
+# Repeat for slack or dingtalk if used. Both sources below are the OLD paths.
+# Check that neither destination already exists before moving; do not overwrite retained data.
+test ! -e "$PROFILE_HOME/plugin-data/hermes-tag/feishu-tag.sqlite3" &&
+test ! -e "$PROFILE_HOME/plugin-data/hermes-tag/feishu-tag.sqlite3.media" &&
+mv -n "$OLD_CWD/feishu-tag.sqlite3" "$PROFILE_HOME/plugin-data/hermes-tag/" &&
+mv -n "$OLD_CWD/feishu-tag.sqlite3.media" "$PROFILE_HOME/plugin-data/hermes-tag/"
+```
+
+Only after both moves succeed and their contents have been verified, run
+`hermes --profile PROFILE gateway start`.
+
+Keep the gateway stopped if either move fails. If rolling back to v0.4.0, stop the gateway,
+move **both** the DB and its `.media` directory back to the recorded old working directory,
+then roll back the plugin and Hermes before starting it again. A code-only rollback opens
+an empty DB at the old default. Do not move data when keeping an explicit `db_path`.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -8,7 +9,7 @@ import threading
 import time
 from collections import Counter
 from uuid import uuid4
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -16,11 +17,22 @@ from typing import Any, Protocol
 CONSOLIDATED_SUMMARY_MAX_CHARS = 2000
 
 
+def default_db_path(platform: str) -> str:
+    if os.environ.get(f"HERMES_PLUGIN_{platform.upper()}_USE_STUBS") == "1":
+        def plugin_data_dir(name: str) -> Path:
+            root = Path(os.environ["HERMES_HOME"]) / "plugin-data" / name
+            root.mkdir(parents=True, exist_ok=True)
+            return root
+    else:
+        from plugins.plugin_storage import plugin_data_dir
+    return str(plugin_data_dir("hermes-tag") / f"{platform}-tag.sqlite3")
+
+
 @dataclass(frozen=True)
 class TagConfig:
     enabled_chats: tuple[str, ...]
     bot_app_id: str = ""
-    db_path: str = "feishu-tag.sqlite3"
+    db_path: str = field(default_factory=lambda: default_db_path("feishu"))
     granted_scopes: frozenset[str] = field(default_factory=frozenset)
     encryption_posture: str = "plaintext-db-on-local-disk"
     max_context_chars: int = 4000
@@ -50,7 +62,7 @@ class TagConfig:
         return cls(
             enabled_chats=tuple(data.get("enabled_chats") or ()),
             bot_app_id=str(data.get("bot_app_id") or data.get("app_id") or "").strip(),
-            db_path=str(data.get("db_path") or "feishu-tag.sqlite3"),
+            db_path=str(data.get("db_path") or default_db_path("feishu")),
             granted_scopes=granted_scopes,
             encryption_posture=str(data.get("encryption_posture") or "plaintext-db-on-local-disk").strip(),
             max_context_chars=int(data.get("max_context_chars") or 4000),
@@ -499,18 +511,10 @@ def _tokens(text: str, limit: int = 64) -> list[str]:
 
 
 def copy_event(event: Any) -> Any:
-    cls = type(event)
-    if is_dataclass(event):
-        values = {f.name: getattr(event, f.name) for f in fields(event)}
-        values["media_urls"] = list(values.get("media_urls") or [])
-        values["media_types"] = list(values.get("media_types") or [])
-        return cls(**values)
-    copied = cls.__new__(cls)
-    copied.__dict__.update(getattr(event, "__dict__", {}))
-    if hasattr(copied, "media_urls"):
-        copied.media_urls = list(copied.media_urls or [])
-    if hasattr(copied, "media_types"):
-        copied.media_types = list(copied.media_types or [])
+    copied = copy.copy(event)
+    for name in ("media_urls", "media_types", "media_text_inlined", "metadata"):
+        if hasattr(event, name):
+            setattr(copied, name, copy.copy(getattr(event, name)))
     return copied
 
 
