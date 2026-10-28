@@ -88,6 +88,22 @@ class RealHermesCompatTest(unittest.TestCase):
                 assert adapter.store.path == expected_db, adapter.store.path
 
                 async def exercise():
+                    slack_adapter = slack.SlackTagAdapter(slack.PlatformConfig(),
+                        slack.TagConfig(enabled_chats=('C',), db_path=str(Path(os.environ['HERMES_HOME']) / 'slack.db'), max_context_chars=1600))
+                    messages = [{'ts': str(i + 1), 'user': f'U{i}', 'text': f'message {i} ' + 'x' * 60}
+                                for i in range(30)]
+                    for authorized in (True, False):
+                        with patch.object(slack_adapter, '_resolve_user_name', AsyncMock(side_effect=lambda user, **kwargs: user)), patch.object(slack_adapter, '_is_sender_authorized', return_value=authorized):
+                            native, _ = await slack.SlackAdapter._format_thread_context(slack_adapter, messages,
+                                thread_ts='1', current_ts='31', team_id='T', channel_id='C')
+                        context = slack_adapter._budget_context('question', [], ['deadline Friday'], [], native)
+                        header, footer = native.rstrip().splitlines()[0], native.rstrip().splitlines()[-1]
+                        assert header in context and footer in context, context
+                        assert 'U29: message 29 ' + 'x' * 60 in context, context
+                        assert 'earlier thread messages omitted]' in context, context
+                        assert 'deadline Friday' in context, context
+                        assert len(context) <= 1600, len(context)
+                    slack_adapter.store.conn.close()
                     message = SimpleNamespace(content=json.dumps({'text': 'hello probe'}),
                         message_type='text', message_id='om_probe', mentions=None)
                     result = await adapter._extract_message_content(message)

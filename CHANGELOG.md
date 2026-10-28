@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Require Hermes >=0.22.5 (tested at v0.22.5), Python 3.14, and the upstream lark-oapi 1.6.8 pin.
 - Preserve bundled platform registration, six-part Feishu extraction, event fields, and Slack native thread context.
+  The native thread context gets at most half of the remaining context budget; when longer, its oldest messages are
+  dropped first (the thread-context header and end marker are kept), so Tag evidence is never crowded out.
 - Default SQLite storage is now `<hermes home>/plugin-data/hermes-tag/<platform>-tag.sqlite3`,
   with its matching `.media` directory. No automatic migration: stop the gateway and move both
   from the old gateway working directory as described in after-install.md. Explicit `db_path` is unchanged.

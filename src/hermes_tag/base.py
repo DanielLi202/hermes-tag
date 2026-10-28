@@ -320,9 +320,10 @@ class TagAdapterMixin:
         enhanced.media_text_inlined += [None] * (len(event.media_urls) - len(enhanced.media_text_inlined))
         enhanced.media_text_inlined += [False] * (len(parent_urls) + len(related_media_urls))
         native_context = getattr(event, "channel_context", None)
+        slack_context = None
         if self.platform_name == "slack" and native_context:
-            background.insert(0, native_context)
-        enhanced.channel_context = self._budget_context(event.text, placeholders, background, memories)
+            slack_context = native_context
+        enhanced.channel_context = self._budget_context(event.text, placeholders, background, memories, slack_context)
         setattr(enhanced, "tier1_context", memories)
         setattr(enhanced, "l2_context", background)
         setattr(enhanced, "source_message_ids", source_ids)
@@ -514,7 +515,27 @@ class TagAdapterMixin:
     def _prune_pending_tier1_locked(self) -> None:
         self.engine._prune_pending()
 
-    def _budget_context(self, current: str, media_notes: list[str], background: list[str], memories: list[str]) -> str:
+    def _trim_native_context(self, context: str, cap: int) -> str:
+        context = context.rstrip()
+        if len(context) <= cap:
+            return context
+        lines = context.split("\n")
+        header = [lines.pop(0)] if lines[0].startswith("[Thread context") else []
+        footer = [lines.pop()] if lines and lines[-1] == "[End of thread context]" else []
+        if not lines:
+            return ""
+        for omitted in range(1, len(lines)):
+            marker = f"[… {omitted} earlier thread messages omitted]"
+            block = "\n".join(header + [marker] + lines[omitted:] + footer)
+            if len(block) <= cap:
+                return block
+        marker = f"[… {len(lines) - 1} earlier thread messages omitted]"
+        tail_chars = cap - len("\n".join(header + [marker, "…"] + footer))
+        if tail_chars <= 0:
+            return ""
+        return "\n".join(header + [marker, "…" + lines[-1][-tail_chars:]] + footer)
+
+    def _budget_context(self, current: str, media_notes: list[str], background: list[str], memories: list[str], native_context: str | None = None) -> str:
         current_piece = f"current: {current}"
         pieces = [current_piece]
         if len(current_piece) + 1 + len(PROMPT_CONTRACT) <= self.tag.max_context_chars:
@@ -522,6 +543,12 @@ class TagAdapterMixin:
         pieces += media_notes
         remaining = self.tag.max_context_chars - sum(len(p) + 1 for p in pieces)
         kept: list[str] = []
+        if native_context:
+            # ponytail: native context has a half-remaining-budget ceiling; make the split configurable if owners ask.
+            native_block = self._trim_native_context(native_context, remaining // 2)
+            if native_block:
+                kept.append(native_block)
+                remaining -= len(native_block) + 1
         for item in background + memories:
             if remaining <= 0:
                 break
