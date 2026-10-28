@@ -21,10 +21,13 @@ jobs:
   real-hermes:
     runs-on: ubuntu-latest
     env:
-      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/hermes-venv
-      HERMES_HOME: ${{ runner.temp }}/hermes-tag-home
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
+      # The runner context is not available in job-level env, so scratch paths go through GITHUB_ENV.
+      - name: Set scratch paths
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/hermes-venv" >> "$GITHUB_ENV"
+          echo "HERMES_HOME=$RUNNER_TEMP/hermes-tag-home" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           path: plugin
