@@ -281,7 +281,7 @@ class TagAdapterMixin:
         parent_urls, parent_types, placeholders, parent_paths = await self._load_reply_media(event)
         orphan_paths: list[str] = []
         if parent_paths and self.tag.uses_tier0_context:
-            self.store.set_tier0_media_paths(_chat_id(event), event.message_id or "", parent_paths)
+            self.store.add_tier0_media_paths(_chat_id(event), event.message_id or "", parent_paths)
         elif parent_paths:
             orphan_paths.extend(parent_paths)
         recent_rows = [r for r in self.store.tier0_rows(_chat_id(event)) if r["message_id"] != event.message_id] if self.tag.uses_tier0_context else []
@@ -625,7 +625,7 @@ class TagAdapterMixin:
         if cmd == "audit":
             return {"audit": self._redacted_audit_events(chat_id)}
         if cmd == "clear":
-            self.store.clear_chat(chat_id)
+            self._clear_chat(chat_id)
             self.store.audit("admin_clear", chat_id, "context cleared")
             return {"cleared": True}
         if cmd == "disable":
@@ -662,10 +662,13 @@ class TagAdapterMixin:
         self.store.audit("enable_chat", chat_id, "notice sent")
         return notice
 
-    def disable_chat(self, chat_id: str) -> None:
+    def _clear_chat(self, chat_id: str) -> None:
         for row in list(self.store.standing_jobs(chat_id)):
             self.cron_api.cancel(row["cron_job_id"])
         self.store.clear_chat(chat_id)
+
+    def disable_chat(self, chat_id: str) -> None:
+        self._clear_chat(chat_id)
         self.store.audit("disable_chat", chat_id, "cleared tier0/tier1/media/cron")
 
     def delete_message(self, chat_id: str, message_id: str) -> int:

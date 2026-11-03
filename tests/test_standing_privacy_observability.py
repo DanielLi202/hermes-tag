@@ -93,6 +93,21 @@ class StandingPrivacyV2Test(unittest.TestCase):
         self.assertEqual(a.store.count_tier0("chat-a"),0); self.assertEqual(a.store.count_tier1("chat-a"),0)
         self.assertFalse(media.exists()); self.assertEqual(cron.cancelled,["cron-1"])
 
+    def test_admin_clear_cancels_standing_cron_jobs(self):
+        a,cron=self.adapter()
+        cron_ids=[]
+        for i in range(2):
+            asyncio.run(a._dispatch_inbound_event(ev("/tag standing add weekly-Friday-10:00 Asia/Shanghai 总结",f"add-{i}")))
+            made=asyncio.run(a._dispatch_inbound_event(ev("/tag standing confirm",f"confirm-{i}")))
+            cron_ids.append(made["cron_job_id"])
+        self.assertEqual(a.store.count_standing_jobs("chat-a"),2)
+        asyncio.run(a._dispatch_inbound_event(ev("/tag admin clear","clear")))
+        self.assertEqual(cron.cancelled,cron_ids)
+        self.assertEqual(a.store.count_standing_jobs("chat-a"),0)
+        self.assertEqual(a.sent[-1], ("chat-a", "cleared; send /new to reset the conversation"))
+        audit=a.store.audit_events("chat-a")[-1]
+        self.assertEqual((audit["event"],audit["detail"]),("admin_clear","context cleared"))
+
     def test_enable_notice_content_and_audit_uses_async_send(self):
         a,_=self.adapter()
         notice=asyncio.run(a.enable_chat("chat-a"))

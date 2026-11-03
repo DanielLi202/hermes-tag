@@ -253,6 +253,25 @@ class Tier0ContextV2Test(unittest.TestCase):
         self.assertIn(incoming.name, out.media_urls)
         self.assertTrue(any("p1-img1" in path for path in out.media_urls))
 
+    def test_reply_media_merges_with_own_attachment_and_clear_deletes_both(self):
+        a=MediaAdapter(PlatformConfig(), cfg(max_context_chars=500))
+        a.parent_messages={"p1":{"media_refs":[{"kind":"image","key":"img1"}]*2}}
+        with tempfile.NamedTemporaryFile(suffix=".png") as incoming:
+            incoming.write(b"image-bytes"); incoming.flush()
+            ask=event("compare these", "m2", at=True, reply="p1")
+            ask.media_urls=[incoming.name]; ask.media_types=["image/png"]
+            a.store_tier0(ask)
+            own_paths=json.loads(a.store.tier0_rows("chat-a")[0]["media_paths"])
+            self.assertEqual(len(own_paths),1)
+            self.assertNotEqual(own_paths[0],incoming.name)
+            asyncio.run(a.enhance_event(ask))
+            paths=json.loads(a.store.tier0_rows("chat-a")[0]["media_paths"])
+            self.assertEqual(paths,own_paths+[str(a.media_cache_dir/"p1-img1.jpg")])
+            self.assertTrue(all(os.path.exists(path) for path in paths))
+            asyncio.run(a._dispatch_inbound_event(event("/tag admin clear","clear",at=True)))
+            self.assertTrue(all(not os.path.exists(path) for path in paths))
+            self.assertTrue(os.path.exists(incoming.name))
+
     def test_focused_reply_reanchors_to_triggering_message(self):
         a=MediaAdapter(PlatformConfig(), cfg())
         a.parent_messages={"p1":{"media_refs":[{"kind":"image","key":"img1"}]}}

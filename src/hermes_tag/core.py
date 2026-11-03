@@ -183,9 +183,12 @@ class TagStore:
             self.conn.commit()
             return cur.rowcount == 1
 
-    def set_tier0_media_paths(self, chat_id: str, message_id: str, paths: list[str]) -> None:
+    def add_tier0_media_paths(self, chat_id: str, message_id: str, paths: list[str]) -> None:
         with self.lock:
-            self.conn.execute("UPDATE tier0_messages SET media_paths=? WHERE chat_id=? AND message_id=?", (json.dumps(paths), chat_id, message_id))
+            row = self.conn.execute("SELECT media_paths FROM tier0_messages WHERE chat_id=? AND message_id=?", (chat_id, message_id)).fetchone()
+            if row:
+                paths = list(dict.fromkeys(json.loads(row["media_paths"]) + paths))
+                self.conn.execute("UPDATE tier0_messages SET media_paths=? WHERE chat_id=? AND message_id=?", (json.dumps(paths), chat_id, message_id))
             self.conn.commit()
 
     def count_tier0(self, chat_id: str) -> int:
