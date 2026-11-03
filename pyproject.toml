@@ -1,17 +1,12 @@
 [project]
 name = "hermes-tag"
-version = "0.4.0"
+version = "0.5.0"
 description = "Hermes Feishu tag platform plugin"
 requires-python = ">=3.11"
 dependencies = []
 
 [project.entry-points."hermes_agent.plugins"]
 hermes-tag = "hermes_tag:register"
-
-[project.optional-dependencies]
-hermes = [
-  "hermes-agent[feishu,cron] @ git+https://github.com/NousResearch/hermes-agent.git@v2026.6.19",
-]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

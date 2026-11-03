@@ -12,7 +12,7 @@ platform (and supports Slack); it is not a new platform.
 
 ## 1. What you (the agent) can do autonomously
 
-_Precondition: this targets Hermes ~`v2026.6.19` (the pinned version). If `hermes plugins install` or the
+_Precondition: this targets Hermes >=`0.22.5` (tested at `v0.22.5`) with **Python 3.14**. If `hermes plugins install` or the
 adapter path errors, check `hermes --version` before debugging further._
 
 1. Run the install command.

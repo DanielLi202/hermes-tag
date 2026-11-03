@@ -2,6 +2,8 @@
 
 > A Claude-Tag-style context-selection layer for the Hermes agent framework on Feishu/Lark (and Slack). @-mention it in a group and it answers in-thread from bounded per-chat memory and the right selected evidence — no full-history RAG, no ambient auto-answer. It overrides Hermes's built-in Feishu platform; it is not a new platform.
 
+Compatibility: hermes-tag 0.5.0 requires Hermes >=0.22.5 (tested at v0.22.5), Python 3.14, and lark-oapi 1.6.8.
+
 ## Install (one command)
 - `hermes plugins install DanielLi202/hermes-tag`
 - Required env: `FEISHU_APP_ID`, `FEISHU_APP_SECRET` (Slack also needs `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`).

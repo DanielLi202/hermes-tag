@@ -17,3 +17,61 @@ jobs:
       # hermes-agent is absent (the live-Hermes smoke test self-skips).
       - name: Run tests
         run: PYTHONPATH=src python -m unittest discover -s tests
+
+  real-hermes:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      # The runner context is not available in job-level env, so scratch paths go through GITHUB_ENV.
+      - name: Set scratch paths
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/hermes-venv" >> "$GITHUB_ENV"
+          echo "HERMES_HOME=$RUNNER_TEMP/hermes-tag-home" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: v0.22.5
+          path: hermes-agent
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # 8.2.0
+      - name: Prepare real Hermes
+        working-directory: hermes-agent
+        run: |
+          uv sync --frozen --extra feishu --extra slack --extra dingtalk --extra cron
+          echo "$UV_PROJECT_ENVIRONMENT/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HERMES_HOME"
+      - name: Export plugin working tree
+        working-directory: plugin
+        run: |
+          mkdir -p "$RUNNER_TEMP/hermes-tag"
+          # NUL-separated: the default output quotes non-ASCII paths (core.quotePath), which rsync cannot resolve.
+          git ls-files -z -co --exclude-standard | rsync -a --from0 --files-from=- . "$RUNNER_TEMP/hermes-tag/"
+      - name: Validate with dependency preparation
+        working-directory: ${{ runner.temp }}/hermes-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          hermes plugins validate . --install-deps 2> "$RUNNER_TEMP/validate.stderr" || status=$?
+          cat "$RUNNER_TEMP/validate.stderr" >&2
+          test "$status" -eq 0
+          if grep -qi 'dependency preparation failed' "$RUNNER_TEMP/validate.stderr"; then
+            exit 1
+          fi
+      - name: Install and enable without force
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A bare path is parsed as GitHub owner/repo shorthand; install the checkout as a pinned git source.
+          hermes plugins install "file://$GITHUB_WORKSPACE/plugin" --ref "$(git -C "$GITHUB_WORKSPACE/plugin" rev-parse HEAD)" --yes-deps --enable < /dev/null
+          hermes plugins list --plain --no-bundled | tee "$RUNNER_TEMP/plugins.list"
+          grep -E '^enabled[[:space:]].*[[:space:]]hermes-tag([[:space:]]|$)' "$RUNNER_TEMP/plugins.list"
+      - name: Run full suite including real Hermes
+        working-directory: plugin
+        run: HERMES_TAG_REQUIRE_REAL_HERMES=1 PYTHONPATH=src python -m unittest discover -s tests

@@ -3,48 +3,27 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import importlib
 import os
+from types import SimpleNamespace
 from typing import Any
 
-from ..base import HermesCronAPI, TagAdapterMixin, assert_real_seams
-from ..core import TagConfig, TagStore
+from ..base import HermesCronAPI, TagAdapterMixin, assert_real_seams, capture_platform_registration
+from ..core import TagConfig, TagStore, default_db_path
 
 BASE_DINGTALK_MODULE = ""
-BASE_DINGTALK_IMPORT_ERROR = ""
 
 
 def _load_base_dingtalk_module() -> Any:
-    errors: list[str] = []
-    for module_name in ("plugins.platforms.dingtalk.adapter", "gateway.platforms.dingtalk"):
-        try:
-            return importlib.import_module(module_name)
-        except Exception as exc:
-            errors.append(f"{module_name}: {type(exc).__name__}: {exc}")
-    raise ImportError("; ".join(errors))
+    return importlib.import_module("plugins.platforms.dingtalk.adapter")
 
 
-try:  # real Hermes path
-    if os.getenv("HERMES_PLUGIN_DINGTALK_USE_STUBS"):
-        raise ImportError("forced stub mode")
+if os.getenv("HERMES_PLUGIN_DINGTALK_USE_STUBS") != "1":
     from gateway.config import PlatformConfig
     from gateway.platforms.base import MessageEvent, MessageType
 
     _base_dingtalk = _load_base_dingtalk_module()
     BASE_DINGTALK_MODULE = getattr(_base_dingtalk, "__name__", "")
     DingTalkAdapter = getattr(_base_dingtalk, "DingTalkAdapter")
-    _base_check_requirements = getattr(_base_dingtalk, "check_dingtalk_requirements", lambda: True)
-    _base_build_adapter = getattr(_base_dingtalk, "_build_adapter", lambda config: DingTalkAdapter(config))
-    _base_is_connected = getattr(_base_dingtalk, "_is_connected", None)
-    _base_interactive_setup = getattr(_base_dingtalk, "interactive_setup", None)
-    _base_apply_yaml_config = getattr(_base_dingtalk, "_apply_yaml_config", None)
-    _base_standalone_send = getattr(_base_dingtalk, "_standalone_send", None)
-except Exception:  # local tests / scaffold path
-    BASE_DINGTALK_IMPORT_ERROR = "base DingTalk adapter is unavailable"
-    _base_check_requirements = lambda: False
-    _base_is_connected = None
-    _base_interactive_setup = None
-    _base_apply_yaml_config = None
-    _base_standalone_send = None
-
+else:  # explicit contract stubs
     class PlatformConfig:  # type: ignore[no-redef]
         def __init__(self, extra: dict[str, Any] | None = None):
             self.extra = extra or {}
@@ -61,6 +40,10 @@ except Exception:  # local tests / scaffold path
         message_id: str | None = None
         media_urls: list[str] = field(default_factory=list)
         media_types: list[str] = field(default_factory=list)
+        media_text_inlined: list[bool | None] = field(default_factory=list)
+        channel_prompt: str | None = None
+        auto_skill: str | list[str] | None = None
+        metadata: dict[str, Any] = field(default_factory=dict)
         reply_to_message_id: str | None = None
         reply_to_text: str | None = None
         channel_context: str | None = None
@@ -83,8 +66,19 @@ except Exception:  # local tests / scaffold path
             self.sent.append((chat_id, content))
             return {"chat_id": chat_id, "content": content, "reply_to": reply_to, "metadata": metadata}
 
-    def _base_build_adapter(config: PlatformConfig) -> DingTalkAdapter:  # type: ignore[no-redef]
-        return DingTalkAdapter(config)
+    def _stub_register(ctx):
+        ctx.register_platform(
+            name="dingtalk", label="DingTalk", adapter_factory=DingTalkAdapter,
+            check_fn=lambda: False, apply_yaml_config_fn=lambda yaml_cfg, platform_cfg: None,
+            allowed_users_env="DINGTALK_ALLOWED_USERS", allow_all_env="DINGTALK_ALLOW_ALL_USERS",
+        )
+
+    _base_dingtalk = SimpleNamespace(register=_stub_register)
+
+
+_base_registration = capture_platform_registration(_base_dingtalk)
+_base_apply_yaml_config = _base_registration["apply_yaml_config_fn"]
+_base_build_adapter = _base_registration["adapter_factory"]
 
 
 def _dingtalk_tag_extra(config: Any) -> dict[str, Any]:
@@ -97,7 +91,7 @@ def _dingtalk_tag_config(config: Any) -> TagConfig:
     data = _dingtalk_tag_extra(config)
     return TagConfig(
         enabled_chats=tuple(data.get("enabled_chats") or ()),
-        db_path=str(data.get("db_path") or "dingtalk-tag.sqlite3"),
+        db_path=str(data.get("db_path") or default_db_path("dingtalk")),
         granted_scopes=frozenset(data.get("granted_scopes") or ()),
         encryption_posture=str(data.get("encryption_posture") or "plaintext-db-on-local-disk").strip(),
         max_context_chars=int(data.get("max_context_chars") or 4000),
@@ -154,22 +148,6 @@ def _chat_id_from(event: Any) -> str:
     return str(getattr(getattr(event, "source", None), "chat_id", "") or getattr(event, "chat_id", ""))
 
 
-def check_requirements() -> bool:
-    try:
-        return bool(_base_check_requirements())
-    except Exception:
-        return False
-
-
-def _is_connected(config: Any) -> bool:
-    if callable(_base_is_connected):
-        try:
-            return bool(_base_is_connected(config))
-        except Exception:
-            pass
-    return bool(os.getenv("DINGTALK_CLIENT_ID", "").strip() and os.getenv("DINGTALK_CLIENT_SECRET", "").strip())
-
-
 def _merge_dingtalk_tag_extra(target: dict[str, Any], source: Any) -> None:
     if not isinstance(source, dict):
         return
@@ -180,10 +158,9 @@ def _merge_dingtalk_tag_extra(target: dict[str, Any], source: Any) -> None:
 
 def apply_yaml_config(yaml_cfg: dict, dingtalk_cfg: dict) -> dict | None:
     seeded: dict[str, Any] = {}
-    if callable(_base_apply_yaml_config):
-        base_seeded = _base_apply_yaml_config(yaml_cfg, dingtalk_cfg)
-        if isinstance(base_seeded, dict):
-            seeded.update(base_seeded)
+    base_seeded = _base_apply_yaml_config(yaml_cfg, dingtalk_cfg)
+    if isinstance(base_seeded, dict):
+        seeded.update(base_seeded)
 
     _merge_dingtalk_tag_extra(seeded, dingtalk_cfg)
     extra = dingtalk_cfg.get("extra") if isinstance(dingtalk_cfg, dict) else None
@@ -205,28 +182,11 @@ def adapter_factory(config: PlatformConfig) -> DingTalkAdapter:
 
 
 def register(ctx: Any) -> None:
-    ctx.register_platform(
-        name="dingtalk",
-        label="DingTalk Tag",
-        adapter_factory=adapter_factory,
-        check_fn=check_requirements,
-        is_connected=_is_connected,
-        validate_config=_is_connected,
-        required_env=["DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET"],
-        install_hint="pip install 'dingtalk-stream>=0.20' httpx",
-        setup_fn=_base_interactive_setup,
-        apply_yaml_config_fn=apply_yaml_config,
-        allowed_users_env="DINGTALK_ALLOWED_USERS",
-        allow_all_env="DINGTALK_ALLOW_ALL_USERS",
-        cron_deliver_env_var="DINGTALK_HOME_CHANNEL",
-        standalone_sender_fn=_base_standalone_send,
-        emoji="🏷️",
-        allow_update_command=True,
-    )
+    ctx.register_platform(**{**_base_registration, "label": "Hermes Tag",
+                             "adapter_factory": adapter_factory, "apply_yaml_config_fn": apply_yaml_config})
 
 
 __all__ = [
-    "BASE_DINGTALK_IMPORT_ERROR",
     "BASE_DINGTALK_MODULE",
     "DingTalkAdapter",
     "DingTalkTagAdapter",
@@ -237,12 +197,10 @@ __all__ = [
     "TagConfig",
     "TagStore",
     "_dingtalk_tag_config",
-    "_is_connected",
     "_load_base_dingtalk_module",
     "_merge_dingtalk_tag_extra",
     "adapter_factory",
     "apply_yaml_config",
     "assert_real_seams",
-    "check_requirements",
     "register",
 ]

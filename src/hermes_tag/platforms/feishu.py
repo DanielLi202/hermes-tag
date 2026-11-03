@@ -14,47 +14,26 @@ from ..base import (
     _get_nested,
     _tag_extra,
     assert_real_seams,
+    capture_platform_registration,
 )
 from ..core import TagConfig as FeishuTagConfig, TagStore as FeishuTagStore
 
 BASE_FEISHU_MODULE = ""
-BASE_FEISHU_IMPORT_ERROR = ""
-FEISHU_AVAILABLE = False
 
 
 def _load_base_feishu_module() -> Any:
-    errors: list[str] = []
-    for module_name in ("plugins.platforms.feishu.adapter", "gateway.platforms.feishu"):
-        try:
-            return importlib.import_module(module_name)
-        except Exception as exc:
-            errors.append(f"{module_name}: {type(exc).__name__}: {exc}")
-    raise ImportError("; ".join(errors))
+    return importlib.import_module("plugins.platforms.feishu.adapter")
 
 
-try:  # real Hermes path
-    if os.getenv("HERMES_PLUGIN_FEISHU_USE_STUBS"):
-        raise ImportError("forced stub mode")
+if os.getenv("HERMES_PLUGIN_FEISHU_USE_STUBS") != "1":
     from gateway.config import PlatformConfig
     from gateway.platforms.base import MessageEvent, MessageType
     _base_feishu = _load_base_feishu_module()
     BASE_FEISHU_MODULE = getattr(_base_feishu, "__name__", "")
-    FEISHU_AVAILABLE = bool(getattr(_base_feishu, "FEISHU_AVAILABLE", False))
     FeishuAdapter = getattr(_base_feishu, "FeishuAdapter")
     normalize_feishu_message = getattr(_base_feishu, "normalize_feishu_message")
-    _base_strip_edge_self_mentions = getattr(_base_feishu, "_strip_edge_self_mentions", lambda text, mentions: text)
-    _base_check_requirements = getattr(_base_feishu, "check_feishu_requirements", lambda: FEISHU_AVAILABLE)
-    _base_apply_yaml_config = getattr(_base_feishu, "_apply_yaml_config", None)
-    _base_interactive_setup = getattr(_base_feishu, "interactive_setup", None)
-    _base_standalone_send = getattr(_base_feishu, "_standalone_send", None)
-except Exception:  # local tests / scaffold path
-    BASE_FEISHU_IMPORT_ERROR = "base Feishu adapter is unavailable"
-    FEISHU_AVAILABLE = False
-    _base_check_requirements = lambda: FEISHU_AVAILABLE
-    _base_apply_yaml_config = None
-    _base_interactive_setup = None
-    _base_standalone_send = None
-
+    _base_strip_edge_self_mentions = _base_feishu._strip_edge_self_mentions
+else:  # explicit contract stubs
     class PlatformConfig:  # type: ignore[no-redef]
         def __init__(self, extra: dict[str, Any] | None = None):
             self.extra = extra or {}
@@ -78,6 +57,10 @@ except Exception:  # local tests / scaffold path
         message_id: str | None = None
         media_urls: list[str] = field(default_factory=list)
         media_types: list[str] = field(default_factory=list)
+        media_text_inlined: list[bool | None] = field(default_factory=list)
+        channel_prompt: str | None = None
+        auto_skill: str | list[str] | None = None
+        metadata: dict[str, Any] = field(default_factory=dict)
         reply_to_message_id: str | None = None
         reply_to_text: str | None = None
         channel_context: str | None = None
@@ -114,6 +97,20 @@ except Exception:  # local tests / scaffold path
         })()
 
     _base_strip_edge_self_mentions = lambda text, mentions: text
+
+    def _stub_register(ctx):
+        ctx.register_platform(
+            name="feishu", label="Feishu", adapter_factory=FeishuAdapter,
+            check_fn=lambda: False, apply_yaml_config_fn=lambda yaml_cfg, platform_cfg: None,
+            emoji="🏷️", allowed_users_env="FEISHU_ALLOWED_USERS", allow_all_env="FEISHU_ALLOW_ALL_USERS",
+            cron_deliver_env_var="FEISHU_HOME_CHANNEL", standalone_sender_fn=None,
+        )
+
+    _base_feishu = SimpleNamespace(register=_stub_register)
+
+
+_base_registration = capture_platform_registration(_base_feishu)
+_base_apply_yaml_config = _base_registration["apply_yaml_config_fn"]
 
 
 class FeishuTagAdapter(TagAdapterMixin, FeishuAdapter):
@@ -173,9 +170,9 @@ class FeishuTagAdapter(TagAdapterMixin, FeishuAdapter):
             return None
 
     async def _extract_message_content(self, message: Any):
-        text, inbound_type, media_urls, media_types, mentions = await super()._extract_message_content(message)
+        text, inbound_type, media_urls, media_types, media_text_inlined, mentions = await super()._extract_message_content(message)
         text = _keep_pure_self_mention(text, inbound_type, media_urls, mentions)
-        return text, inbound_type, media_urls, media_types, mentions
+        return text, inbound_type, media_urls, media_types, media_text_inlined, mentions
 
     async def _fetch_reply_media_refs(self, reply_id: str) -> list[dict]:
         if hasattr(self, "parent_messages"):
@@ -226,25 +223,6 @@ class FeishuTagAdapter(TagAdapterMixin, FeishuAdapter):
         return super().disable_chat(chat_id)
 
 
-def check_requirements() -> bool:
-    try:
-        return bool(_base_check_requirements())
-    except Exception:
-        return False
-
-
-def _is_connected(config: Any) -> bool:
-    extra = getattr(config, "extra", {}) or {}
-    app_id = str(extra.get("app_id") or os.getenv("FEISHU_APP_ID") or "").strip()
-    if app_id:
-        return True
-    try:
-        import hermes_cli.gateway as gateway_mod
-        return bool(str(gateway_mod.get_env_value("FEISHU_APP_ID") or "").strip())
-    except Exception:
-        return False
-
-
 def _merge_feishu_tag_extra(target: dict[str, Any], source: Any) -> None:
     if not isinstance(source, dict):
         return
@@ -255,10 +233,9 @@ def _merge_feishu_tag_extra(target: dict[str, Any], source: Any) -> None:
 
 def apply_yaml_config(yaml_cfg: dict, feishu_cfg: dict) -> dict | None:
     seeded: dict[str, Any] = {}
-    if callable(_base_apply_yaml_config):
-        base_seeded = _base_apply_yaml_config(yaml_cfg, feishu_cfg)
-        if isinstance(base_seeded, dict):
-            seeded.update(base_seeded)
+    base_seeded = _base_apply_yaml_config(yaml_cfg, feishu_cfg)
+    if isinstance(base_seeded, dict):
+        seeded.update(base_seeded)
 
     _merge_feishu_tag_extra(seeded, feishu_cfg)
     extra = feishu_cfg.get("extra") if isinstance(feishu_cfg, dict) else None
@@ -269,25 +246,8 @@ def apply_yaml_config(yaml_cfg: dict, feishu_cfg: dict) -> dict | None:
 
 
 def register(ctx: Any) -> None:
-    ctx.register_platform(
-        name="feishu",
-        label="Hermes Tag",
-        adapter_factory=adapter_factory,
-        check_fn=check_requirements,
-        is_connected=_is_connected,
-        validate_config=_is_connected,
-        required_env=["FEISHU_APP_ID", "FEISHU_APP_SECRET"],
-        install_hint="Install Hermes with the Feishu platform dependencies, for example: pip install 'hermes-agent[feishu,cron]'.",
-        setup_fn=_base_interactive_setup,
-        apply_yaml_config_fn=apply_yaml_config,
-        allowed_users_env="FEISHU_ALLOWED_USERS",
-        allow_all_env="FEISHU_ALLOW_ALL_USERS",
-        cron_deliver_env_var="FEISHU_HOME_CHANNEL",
-        standalone_sender_fn=_base_standalone_send,
-        max_message_length=8000,
-        emoji="🏷️",
-        allow_update_command=True,
-    )
+    ctx.register_platform(**{**_base_registration, "label": "Hermes Tag",
+                             "adapter_factory": adapter_factory, "apply_yaml_config_fn": apply_yaml_config})
 
 
 def adapter_factory(config: PlatformConfig) -> FeishuAdapter:
@@ -385,9 +345,7 @@ def _raw_feishu_message(event: MessageEvent) -> Any | None:
 
 
 __all__ = [
-    "BASE_FEISHU_IMPORT_ERROR",
     "BASE_FEISHU_MODULE",
-    "FEISHU_AVAILABLE",
     "FeishuAdapter",
     "FeishuTagAdapter",
     "FeishuTagConfig",
@@ -397,7 +355,6 @@ __all__ = [
     "MessageType",
     "PlatformConfig",
     "_event_mentions",
-    "_is_connected",
     "_is_mentioned",
     "_load_base_feishu_module",
     "_merge_feishu_tag_extra",
@@ -407,7 +364,6 @@ __all__ = [
     "adapter_factory",
     "apply_yaml_config",
     "assert_real_seams",
-    "check_requirements",
     "normalize_feishu_message",
     "register",
 ]
