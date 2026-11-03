@@ -139,7 +139,6 @@ class TagAdapterMixin:
             }
             for enabled_chat_id in self.tag.enabled_chats
         }
-        degraded = ["session_reset"] if self.store.metric("session_reset_degraded") else []
         return {
             "adapter": type(self).__name__,
             "hermes_tag": HERMES_TAG,
@@ -170,7 +169,6 @@ class TagAdapterMixin:
                 "tier1_write_skipped_duplicate": self.store.metric("tier1_write_skipped_duplicate"),
                 "slack_reply_media_unavailable": self.store.metric("slack_reply_media_unavailable"),
                 "author_normalized": self.store.metric("author_normalized"),
-                "session_reset_degraded": self.store.metric("session_reset_degraded"),
                 "command_send_failure": self.store.metric("command_send_failure"),
                 "media_download_success": self.store.metric("media_download_success"),
                 "media_download_failure": self.store.metric("media_download_failure"),
@@ -180,7 +178,7 @@ class TagAdapterMixin:
                 "override_selfcheck_ok": 1,
             },
             "retention": self.retention_table(),
-            **({"degraded": degraded} if degraded else {}),
+            "degraded": [],
         }
 
     async def _dispatch_inbound_event(self, event: MessageEvent) -> Any:
@@ -354,7 +352,6 @@ class TagAdapterMixin:
                     "selected_media_ids": [row["message_id"] for row in pack.media_rows],
                     "excluded": [{"id": message_id, "reason": reason} for message_id, reason in pack.excluded],
                     "tier1_count": len(memories),
-                    "context_preview": enhanced.channel_context[:240],
                 },
                 ensure_ascii=False,
             ),
@@ -630,8 +627,7 @@ class TagAdapterMixin:
         if cmd == "clear":
             self.store.clear_chat(chat_id)
             self.store.audit("admin_clear", chat_id, "context cleared")
-            reset = self._reset_gateway_session(event)
-            return {"cleared": True, "session_reset": reset["ok"], "session_reset_reason": reset.get("reason", "")}
+            return {"cleared": True}
         if cmd == "disable":
             self.disable_chat(chat_id)
             return {"disabled": True}
@@ -685,81 +681,6 @@ class TagAdapterMixin:
 
     async def send(self, chat_id: str, content: str, reply_to=None, metadata=None) -> Any:
         return await self.engine.send(chat_id, content, reply_to=reply_to, metadata=metadata)
-
-    def _reset_gateway_session(self, event: MessageEvent) -> dict[str, Any]:
-        handler = getattr(self, "_message_handler", None)
-        runner = getattr(handler, "__self__", None)
-        session_store = getattr(runner, "session_store", None)
-        if runner is None or session_store is None or not hasattr(session_store, "reset_session"):
-            reason = "gateway runner unavailable"
-            self.store.inc("session_reset_degraded")
-            self.store.audit("hermes_session_reset_skipped", _chat_id(event), reason)
-            return {"ok": False, "reason": reason}
-        source = getattr(event, "source", None)
-        if source is None:
-            reason = "event source unavailable"
-            self.store.inc("session_reset_degraded")
-            self.store.audit("hermes_session_reset_skipped", _chat_id(event), reason)
-            return {"ok": False, "reason": reason}
-        try:
-            normalize_source = getattr(runner, "_normalize_source_for_session_key", None)
-            if callable(normalize_source):
-                source = normalize_source(source)
-            session_key_for_source = getattr(runner, "_session_key_for_source", None)
-            if callable(session_key_for_source):
-                session_key = session_key_for_source(source)
-            else:
-                session_key = session_store._generate_session_key(source)
-            if not session_key:
-                raise RuntimeError("empty session key")
-            old_entry = getattr(session_store, "_entries", {}).get(session_key)
-            old_session_id = getattr(old_entry, "session_id", "")
-            self._clear_gateway_session_runtime_state(runner, session_key)
-            new_entry = session_store.reset_session(session_key)
-            if new_entry is None and hasattr(session_store, "get_or_create_session"):
-                new_entry = session_store.get_or_create_session(source, force_new=True)
-            new_session_id = getattr(new_entry, "session_id", "")
-            detail = json.dumps(
-                {"session_key": session_key, "old_session_id": old_session_id, "new_session_id": new_session_id},
-                ensure_ascii=False,
-            )
-            self.store.audit("hermes_session_reset", _chat_id(event), detail)
-            return {"ok": bool(new_entry), "reason": "" if new_entry else "session entry unavailable", "session_key": session_key, "old_session_id": old_session_id, "new_session_id": new_session_id}
-        except Exception as exc:
-            reason = f"{type(exc).__name__}: {exc}"
-            self.store.inc("session_reset_degraded")
-            self.store.audit("hermes_session_reset_failed", _chat_id(event), reason)
-            return {"ok": False, "reason": reason}
-
-    def _clear_gateway_session_runtime_state(self, runner: Any, session_key: str) -> None:
-        for name, args in (
-            ("_invalidate_session_run_generation", (session_key,)),
-            ("_release_running_agent_state", (session_key,)),
-            ("_evict_cached_agent", (session_key,)),
-            ("_clear_session_boundary_security_state", (session_key,)),
-        ):
-            method = getattr(runner, name, None)
-            if callable(method):
-                try:
-                    if name == "_invalidate_session_run_generation":
-                        method(*args, reason="tag_admin_clear")
-                    else:
-                        method(*args)
-                except Exception:
-                    pass
-        set_reasoning = getattr(runner, "_set_session_reasoning_override", None)
-        if callable(set_reasoning):
-            try:
-                set_reasoning(session_key, None)
-            except Exception:
-                pass
-        for attr in ("_queued_events", "_session_model_overrides", "_pending_model_notes"):
-            value = getattr(runner, attr, None)
-            if hasattr(value, "pop"):
-                try:
-                    value.pop(session_key, None)
-                except Exception:
-                    pass
 
     def retention_table(self) -> dict[str, str]:
         return {

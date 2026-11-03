@@ -37,32 +37,6 @@ class CronAPI:
     def pause(self, job_id): self.paused.append(job_id)
     def enable(self, job_id): self.enabled.append(job_id)
 
-class SessionStore:
-    def __init__(self):
-        self.reset=[]
-        self._entries={"session-key": SimpleNamespace(session_id="old-session")}
-    def _generate_session_key(self, source): return "session-key"
-    def reset_session(self, session_key):
-        self.reset.append(session_key)
-        entry=SimpleNamespace(session_id="new-session")
-        self._entries[session_key]=entry
-        return entry
-
-class Runner:
-    def __init__(self):
-        self.session_store=SessionStore()
-        self.cleared=[]
-        self._queued_events={}
-        self._session_model_overrides={}
-        self._pending_model_notes={}
-    def _session_key_for_source(self, source): return "session-key"
-    def _invalidate_session_run_generation(self, session_key, reason=None): self.cleared.append(("generation",session_key,reason))
-    def _release_running_agent_state(self, session_key): self.cleared.append(("running",session_key))
-    def _evict_cached_agent(self, session_key): self.cleared.append(("cache",session_key))
-    def _clear_session_boundary_security_state(self, session_key): self.cleared.append(("security",session_key))
-    def _set_session_reasoning_override(self, session_key, value): self.cleared.append(("reasoning",session_key,value))
-    async def handle(self, event): return "unused"
-
 class StandingPrivacyV2Test(unittest.TestCase):
     def adapter(self, **kw):
         cron=CronAPI(); return FeishuTagAdapter(PlatformConfig(), cfg(**kw), cron), cron
@@ -136,9 +110,8 @@ class StandingPrivacyV2Test(unittest.TestCase):
         status=a.preflight_status()
         for key in ["admission_dropped","tier0_rows","tier0_evicted","tier1_memories","tier1_write_failure","command_send_failure","media_download_success","media_download_failure","degraded_no_group_msg","override_selfcheck_ok","standing_jobs"]:
             self.assertIn(key,status["metrics"])
-        runner=Runner(); a._message_handler=runner.handle
         asyncio.run(a._dispatch_inbound_event(ev("/tag admin clear","clear")))
-        self.assertEqual(a.sent[-1], ("chat-a", "cleared; session reset"))
+        self.assertEqual(a.sent[-1], ("chat-a", "cleared; send /new to reset the conversation"))
         self.assertEqual(a.store.count_tier0("chat-a"),0)
 
     def test_audit_timestamp_migration_and_admin_audit_redaction(self):
@@ -165,15 +138,28 @@ class StandingPrivacyV2Test(unittest.TestCase):
         self.assertNotIn("context_preview", rendered)
         self.assertNotIn("SECRET_BODY", rendered)
 
-    def test_admin_clear_resets_gateway_session_store(self):
+    def test_admin_clear_only_clears_plugin_data(self):
+        class UnreadableHandler:
+            def __getattribute__(self, name):
+                raise AssertionError(f"gateway handler accessed: {name}")
+
         a,_=self.adapter()
-        runner=Runner(); a._message_handler=runner.handle
+        a._message_handler=UnreadableHandler()
+        media=a.media_cache_dir/"clear.bin"; media.write_bytes(b"x")
+        a.store.insert_tier0(chat_id="chat-a",message_id="bg",text="private background",author="Alice",thread_id=None,media_paths=[str(media)])
+        a.store.write_tier1("chat-a","private memory","Alice","ask","Alice",["bg"])
+        a.store.create_standing_job("chat-a","description","* * * * *","UTC","cron-1","Alice")
         result=asyncio.run(a._dispatch_inbound_event(ev("/tag admin clear","clear")))
-        self.assertTrue(result["cleared"])
-        self.assertTrue(result["session_reset"])
-        self.assertEqual(runner.session_store.reset, ["session-key"])
-        self.assertIn(("cache","session-key"), runner.cleared)
-        self.assertTrue(any(r["event"]=="hermes_session_reset" for r in a.store.audit_events("chat-a")))
+        self.assertEqual(result,{"cleared":True})
+        self.assertEqual(a.sent[-1],("chat-a","cleared; send /new to reset the conversation"))
+        self.assertEqual(a.store.count_tier0("chat-a"),0)
+        self.assertEqual(a.store.count_tier1("chat-a"),0)
+        self.assertEqual(a.store.count_standing_jobs("chat-a"),0)
+        self.assertFalse(media.exists())
+        self.assertEqual(a.store.audit_events("chat-a")[-1]["event"],"admin_clear")
+        self.assertEqual(a.store.audit_events("chat-a")[-1]["detail"],"context cleared")
+        self.assertEqual(a.preflight_status()["degraded"],[])
+        self.assertNotIn("session_reset_degraded",a.preflight_status()["metrics"])
 
     def test_group_tag_command_requires_mention(self):
         a,_=self.adapter()
@@ -200,20 +186,6 @@ class StandingPrivacyV2Test(unittest.TestCase):
         self.assertEqual(a.preflight_status()["metrics"]["tier1_write_failure"],1)
 
 
-    def test_session_reset_degraded_metric_when_runner_missing(self):
-        a,_=self.adapter()
-        result=asyncio.run(a._dispatch_inbound_event(ev("/tag admin clear","clear")))
-        self.assertFalse(result["session_reset"])
-        self.assertEqual(result["session_reset_reason"],"gateway runner unavailable")
-        self.assertEqual(a.preflight_status()["metrics"]["session_reset_degraded"],1)
-        self.assertEqual(a.preflight_status()["degraded"],["session_reset"])
-
-    def test_session_reset_success_has_no_degraded_flag(self):
-        a,_=self.adapter()
-        runner=Runner(); a._message_handler=runner.handle
-        asyncio.run(a._dispatch_inbound_event(ev("/tag admin clear","clear")))
-        self.assertNotIn("degraded", a.preflight_status())
-
     def test_standing_job_id_uses_uuid_suffix(self):
         import re
         import hermes_tag.core as core
@@ -232,9 +204,43 @@ class StandingPrivacyV2Test(unittest.TestCase):
 
     def test_no_full_sensitive_body_in_audit(self):
         a,_=self.adapter()
-        asyncio.run(a._dispatch_inbound_event(ev("SECRET_TOKEN full body","t",at=False)))
-        audit="\n".join(r["detail"] for r in a.store.audit_events())
-        self.assertNotIn("SECRET_TOKEN full body",audit)
+        background="SECRET_BACKGROUND full body"
+        question="SECRET_QUESTION full body"
+        asyncio.run(a._dispatch_inbound_event(ev(background,"bg",at=False)))
+        asyncio.run(a._dispatch_inbound_event(ev(question,"ask")))
+        self.assertIn(question,a.dispatched[-1].channel_context)
+        self.assertIn(background,a.dispatched[-1].channel_context)
+        rows=a.store.audit_events("chat-a")
+        self.assertTrue(any(r["event"]=="enhance_event" for r in rows))
+        for row in rows:
+            self.assertNotIn(question,row["detail"])
+            self.assertNotIn(background,row["detail"])
+            self.assertNotIn("context_preview",row["detail"])
+
+    def test_store_open_scrubs_legacy_audit_previews_idempotently(self):
+        with tempfile.TemporaryDirectory() as td:
+            path=os.path.join(td,"tag.sqlite3")
+            original={"context_preview":"private message", "scope":"plain", "tier1_count":2,
+                      "selected_text_ids":["bg"], "nested":{"kept":True}, "unicode":"中文"}
+            untouched=['not JSON: "context_preview"', ' { "scope" : "plain", "note" : "context_preview" } ']
+            store=FeishuTagStore(path)
+            for detail in [json.dumps(original),*untouched]:
+                store.audit("enhance_event","chat-a",detail)
+            before=[dict(row) for row in store.audit_events()]
+            store.close()
+
+            store=FeishuTagStore(path)
+            after=[dict(row) for row in store.audit_events()]
+            expected={key:value for key,value in original.items() if key!="context_preview"}
+            self.assertEqual(json.loads(after[0]["detail"]),expected)
+            self.assertEqual({key:value for key,value in after[0].items() if key!="detail"},
+                             {key:value for key,value in before[0].items() if key!="detail"})
+            self.assertEqual(after[1:],before[1:])
+            store.close()
+
+            store=FeishuTagStore(path)
+            self.assertEqual([dict(row) for row in store.audit_events()],after)
+            store.close()
 
     def test_no_duplicate_disable_or_detached_weekly_helper(self):
         import hermes_tag.adapter as m
