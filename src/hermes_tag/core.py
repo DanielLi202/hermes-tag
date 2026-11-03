@@ -125,6 +125,15 @@ class TagStore:
             """
         )
         self._ensure_audit_created_at()
+        # ponytail: scrub legacy previews on open without requiring SQLite JSON1 or a migration registry.
+        for row in self.conn.execute('SELECT id, detail FROM audit_events WHERE detail LIKE \'%"context_preview"%\'').fetchall():
+            try:
+                detail = json.loads(row["detail"])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(detail, dict) and "context_preview" in detail:
+                del detail["context_preview"]
+                self.conn.execute("UPDATE audit_events SET detail=? WHERE id=?", (json.dumps(detail, ensure_ascii=False), row["id"]))
         self.conn.commit()
 
     def close(self) -> None:
@@ -174,9 +183,12 @@ class TagStore:
             self.conn.commit()
             return cur.rowcount == 1
 
-    def set_tier0_media_paths(self, chat_id: str, message_id: str, paths: list[str]) -> None:
+    def add_tier0_media_paths(self, chat_id: str, message_id: str, paths: list[str]) -> None:
         with self.lock:
-            self.conn.execute("UPDATE tier0_messages SET media_paths=? WHERE chat_id=? AND message_id=?", (json.dumps(paths), chat_id, message_id))
+            row = self.conn.execute("SELECT media_paths FROM tier0_messages WHERE chat_id=? AND message_id=?", (chat_id, message_id)).fetchone()
+            if row:
+                paths = list(dict.fromkeys(json.loads(row["media_paths"]) + paths))
+                self.conn.execute("UPDATE tier0_messages SET media_paths=? WHERE chat_id=? AND message_id=?", (json.dumps(paths), chat_id, message_id))
             self.conn.commit()
 
     def count_tier0(self, chat_id: str) -> int:
@@ -406,12 +418,7 @@ def format_command_result(result: Any) -> str:
     if error:
         return f"error: {error}"
     if result.get("cleared"):
-        if result.get("session_reset"):
-            return "cleared; session reset"
-        if "session_reset" in result:
-            reason = result.get("session_reset_reason") or "unavailable"
-            return f"cleared; session reset skipped: {reason}"
-        return "cleared"
+        return "cleared; send /new to reset the conversation"
     if result.get("disabled"):
         return "disabled"
     if "help" in result:

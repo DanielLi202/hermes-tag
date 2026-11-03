@@ -20,7 +20,7 @@ Hermes Tag 是 Hermes 的一个 Claude-Tag 式**上下文选择层**，面向飞
 
 1. **迟到的 @，完整的上下文。** 你可以在 @ 它之前就把上下文铺散开——图片、一段说明、别人的回复——等你终于 @ 它，它会跨时间、跨图文重建出恰当的有界证据：那几张图的原图、你的说明、相关的讨论。不是只看触发那一句，也不是整段聊天记录。
 2. **记忆按群隔离，by design。** 长期记忆只来自 @ 互动，并且只停留在那个群——一个群的记忆不会泄露到另一个群，也不会变成你的全部账号历史。没有跨频道的“workspace 记忆”；这种隔离就是隐私承诺。
-3. **可审计，且从不存你的消息正文。** `/tag admin audit` 返回脱敏事件（scope、时间、数量——绝不含消息文本）；`/tag admin clear|disable` 清除某个群保留的数据。`enabled_chats` 白名单是唯一的存储与处理边界。
+3. **可审计，审计事件已脱敏。** `/tag admin audit` 返回脱敏事件（scope、时间、数量——绝不含消息文本）；`/tag admin clear|disable` 清除某个群保留的数据。`enabled_chats` 白名单是唯一的存储与处理边界。
 
 `ContextSelector` 通过 `focused_reply`、`thread`、`deictic_recent`、`plain` 四种范围选择**有界证据**，而不是把整段聊天记录塞给模型。这意味着没有全量历史 RAG，也不会无人 @ 就自动回复。
 
@@ -31,11 +31,18 @@ Hermes Tag 是 Hermes 的一个 Claude-Tag 式**上下文选择层**，面向飞
 ## 安全与风险提示（使用前必读）
 
 - `enabled_chats` 白名单是存储与处理的边界。
-- 启用群里的所有消息都可能作为 Tier-0 短期上下文被本地缓冲。
-- 只有 @ 互动才会产生 Tier-1 长期记忆。
-- 声明的 `encryption_posture` 为 `plaintext-db-on-local-disk`（本地磁盘明文）。
-- 管理员可执行 `/tag admin clear` 或 `/tag admin disable` 清除某个群保留的插件数据，并用 `/tag admin audit` 查看脱敏的活动记录。
-- 审计事件记录启动、存储、管理、定时任务与生命周期等操作——绝不记录消息正文。
+- **Tier-0 会存消息正文。** bot 在启用群里收到的每条消息都会作为 Tier-0 短期上下文存下来，**包括正文**。飞书上只有 `granted_scopes` 包含 `im:message.group_msg` 时才会存；Slack 和钉钉上总是会存。默认每个群最多 500 条（`tier0_max_count`）。超过 24 小时（`tier0_ttl_seconds`）的记录，要等该群下一次有消息被存储时才会被删除，所以安静的群可能保留得更久。
+- **Tier-1 会存提问和回复。** 每次 @ 互动都会写入一条 Tier-1 记忆，格式为 `question=<消息正文>; conclusion=<回复正文>`。私聊里的每一轮都算作 @。一个群超过 `tier1_max_count`（默认 100 条）后，较早的记忆会被合并。Tier-1 没有时间上限。
+- 两者都存在一个明文 SQLite 文件里（声明的 `encryption_posture` 为 `plaintext-db-on-local-disk`），路径为 `<hermes home>/plugin-data/hermes-tag/<platform>-tag.sqlite3`，配置了 `db_path` 时以它为准。已存消息自带的附件会复制到同级的 `<sqlite 文件名>.media` 目录。被引用消息中的媒体由内置 adapter 下载到 Hermes 的媒体缓存，每次下载都生成一个新文件。插件会删除所有这些文件：用完当轮即删；如果作为 Tier-0 上下文保留，就在 clear 或过期清理时删除。
+- 在飞书上，插件会用 bot 凭据自行调用以下飞书开放平台 API：
+  - `application.v6.scope.list`：每个进程一次，核对应用是否真的拥有 `granted_scopes` 声称的 `im:message.group_msg`；
+  - `im.v1.message.get` 和消息资源下载：用于读取被引用的消息；
+  - 上述核对发现权限不匹配或可升级时，私信每位配置的管理员。
+
+  在 Slack 和钉钉上，插件自身不调用任何 API。
+- 管理员执行 `/tag standing confirm` 会创建一个 Hermes cron 任务。该任务按计划运行并发到群里，直到被取消或暂停。
+- `/tag admin clear` 和 `/tag admin disable` 会删除该群的 Tier-0、Tier-1 和媒体，并取消该群定时任务对应的 cron 任务。它们不会重置 Hermes 会话；要重置请发送 `/new`。
+- 审计事件（`/tag admin audit`）记录启动、存储、管理、定时任务和生命周期等操作，只含 id、计数和固定文本，绝不含消息正文。clear 之后审计事件仍会保留。旧版本写入的、带上下文预览的记录，会在打开存储时被清理掉。
 
 启用试点群之前，请阅读 [SECURITY.md](SECURITY.md) 与 [docs/design/](docs/design/)。
 

@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.5.0] - Unreleased
+## [0.5.0] - 2026-11-03
 
 ### Changed
 
@@ -19,6 +19,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   from the old gateway working directory as described in after-install.md. Explicit `db_path` is unchanged.
 - Remove the Slack native slash-command patch; use `@bot /tag ...` if Slack's 50-command limit truncates `/tag`.
 - Contract stubs are opt-in; CI also checks real Hermes v0.22.5 validation, install, and runtime compatibility.
+- `/tag admin clear` no longer resets the Hermes session, which it did through private gateway runner state
+  (catalog rule 9). It clears plugin data only and replies `cleared; send /new to reset the conversation`. The
+  `session_reset_degraded` metric is gone.
+- README security section now states what Tier-0 and Tier-1 store (message text, question and reply) and their
+  retention, the Feishu Open API calls the plugin makes, and the cron jobs standing work creates.
+
+### Fixed
+
+- Audit events no longer store a 240-character context preview, which contained message text. Rows already
+  written are scrubbed when the store opens.
+- `/tag admin clear` now cancels the Hermes cron jobs behind the chat's standing jobs, as `disable` does. Before,
+  they kept posting after clear and could no longer be listed or cancelled.
+- A message that has its own attachments and also quotes media keeps both sets of paths on its Tier-0 row, so
+  clear and eviction delete all of them. Before, the quoted media's paths replaced the message's own paths, and its
+  own attachment copies were left on disk.
 
 ## [0.4.0] - 2026-07-09
 

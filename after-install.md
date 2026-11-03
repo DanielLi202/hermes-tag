@@ -227,33 +227,16 @@ profile and Feishu IDs.
 
 8. Verify admin clear semantics.
 
-   `/tag admin clear @BOT_NAME` must clear plugin storage and reset the Hermes
-   gateway session for that chat/user key. The expected reply is:
+   `/tag admin clear @BOT_NAME` must clear plugin storage only. The expected reply is:
 
    ```text
-   cleared; session reset
+   cleared; send /new to reset the conversation
    ```
 
-   Then ask about information that was only present before the clear. The bot
-   should not answer from the old Hermes session. If it does, inspect:
-
-   ```bash
-   sqlite3 ~/.hermes/profiles/PROFILE/plugin-data/hermes-tag/feishu-tag.sqlite3 \
-     "select event, chat_id, detail from audit_events order by id desc limit 20;"
-
-   python - <<'PY'
-   import json
-   import os
-   p = "~/.hermes/profiles/PROFILE/sessions/sessions.json"
-   data = json.load(open(os.path.expanduser(p)))
-   for key, value in data.items():
-       if "CHAT_ID" in key:
-           print(key, value.get("session_id"), value.get("updated_at"))
-   PY
-   ```
-
-   The audit log should contain `hermes_session_reset` with different old and
-   new session IDs.
+   Send the native `/new` command to reset the Hermes conversation. Only then
+   ask about information that was only present before the clear. The bot should
+   not answer from the old Hermes session. The plugin audit log records
+   `admin_clear`, not a Hermes session reset.
 
 ## Slack onboarding and live verification
 
@@ -318,9 +301,8 @@ Run this sequence for each profile that enables Slack. Replace `PROFILE`, `CHANN
 - Commands reply without a mention: group command gating is broken. In groups,
   `/tag ...` must require `@BOT_NAME`; only DMs may run commands without a
   mention.
-- `/tag admin clear` says session reset but old facts remain: verify the audit
-  event includes a real old/new Hermes session ID pair. If the gateway runner
-  or `session_store` is unavailable, the plugin should say reset was skipped.
+- Old facts remain after `/tag admin clear`: clear removes plugin data only.
+  Send the native `/new` command to reset the Hermes conversation.
 
 - Slackbot says `/tag` is not a valid command: regenerate `hermes slack manifest` after `hermes-tag` is enabled, save it in Slack App Manifest, and reinstall the app if prompted.
 - Slackbot says `/tag` failed because the app did not respond: the manifest is saved, but the running Socket Mode matcher is stale. Restart the gateway and verify `/tag` appears after running `docs/slack-manifest-add-tag.py` on the generated manifest.

@@ -216,10 +216,10 @@ class E2EJourneysTest(unittest.TestCase):
         counts = asyncio.run(a._dispatch_inbound_event(ev("/tag admin count", "count")))
         self.assertGreaterEqual(counts["tier1"], 1)
         result = asyncio.run(a._dispatch_inbound_event(ev("/tag admin clear", "clear")))
-        self.assertFalse(result["session_reset"])
-        self.assertEqual(result["session_reset_reason"], "gateway runner unavailable")
-        self.assertEqual(a.preflight_status()["degraded"], ["session_reset"])
-        self.assertGreaterEqual(a.store.metric("session_reset_degraded"), 1)
+        self.assertEqual(result, {"cleared": True})
+        self.assertEqual(a.sent[-1], ("chat-a", "cleared; send /new to reset the conversation"))
+        self.assertEqual(a.preflight_status()["degraded"], [])
+        self.assertEqual(a.store.count_tier1("chat-a"), 0)
         self.assertEqual(a.store.count_tier0("chat-a"), 0)
 
     def test_p1b_generated_config_shape_boots_slack_tag_adapter(self):

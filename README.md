@@ -20,7 +20,7 @@ What it uniquely adds on top of Hermes's built-in channels:
 
 1. **Late @, full context.** You can scatter context before you ever invoke it — images, a note, other people's replies — and when you finally @-mention it, it reconstructs the right bounded evidence across time and media: the images' originals, your note, and the relevant discussion. Not just your trigger message; not the whole transcript.
 2. **Per-chat memory, by design.** Long-term memory is built only from @-mention interactions and stays scoped to that chat — one chat's memory never leaks into another, and never becomes your whole account history. There is no cross-channel "workspace memory"; that isolation is the privacy promise.
-3. **Auditable, and it never stores your message bodies.** `/tag admin audit` returns redacted events (scope, time, counts — never message text); `/tag admin clear|disable` removes a chat's retained data. The `enabled_chats` allowlist is the only storage and processing boundary.
+3. **Auditable, with redacted audit events.** `/tag admin audit` returns redacted events (scope, time, counts — never message text); `/tag admin clear|disable` removes a chat's retained data. The `enabled_chats` allowlist is the only storage and processing boundary.
 
 The `ContextSelector` chooses bounded evidence with `focused_reply`, `thread`, `deictic_recent`, and `plain` scopes instead of dumping the transcript. That means no full-history RAG and no ambient auto-answering.
 
@@ -31,11 +31,18 @@ This repository, the Python/pip package, and the manifest name are all `hermes-t
 ## Security & Risk Warnings (Read Before Use)
 
 - The `enabled_chats` allowlist is the storage and processing boundary.
-- All messages in enabled chats may be buffered locally as Tier-0 short-term context.
-- Only @-mention interactions create Tier-1 long-term memory.
-- The declared `encryption_posture` is `plaintext-db-on-local-disk`.
-- Admins can run `/tag admin clear` or `/tag admin disable` to remove retained plugin data for a chat, and `/tag admin audit` to inspect redacted activity.
-- Audit events record startup, storage, admin, standing-job, and lifecycle actions — never message bodies.
+- **Tier-0 stores message text.** Each message the bot receives in an enabled chat is kept as Tier-0 short-term context, **including its text**. On Feishu this happens only when `granted_scopes` includes `im:message.group_msg`; on Slack and DingTalk it always happens. Defaults: 500 rows per chat (`tier0_max_count`). Rows older than 24 hours (`tier0_ttl_seconds`) are deleted the next time a message is stored for that chat, so a quiet chat can keep them longer.
+- **Tier-1 stores the question and the reply.** Each @-mention turn writes a Tier-1 memory of the form `question=<message text>; conclusion=<reply text>`. Every turn in a DM counts as a mention. Once a chat passes `tier1_max_count` (100 by default), older memories are merged. Tier-1 has no time limit.
+- Both are kept in a plaintext SQLite file (declared `encryption_posture: plaintext-db-on-local-disk`), at `<hermes home>/plugin-data/hermes-tag/<platform>-tag.sqlite3` or your `db_path`. Attachments on stored messages are copied into the sibling `<sqlite file>.media` directory. Media from quoted messages is downloaded through the bundled adapter into Hermes's media cache, one new file per download. The plugin deletes all of these files: after the turn, or on clear or eviction if they are kept as Tier-0 context.
+- On Feishu it makes these Feishu Open API calls of its own, with the bot's credentials:
+  - `application.v6.scope.list`, once per process, to check whether the app really holds `im:message.group_msg` as `granted_scopes` claims;
+  - `im.v1.message.get` plus message-resource downloads, for quoted messages;
+  - a DM to each configured admin when that check finds a mismatch or an available upgrade.
+
+  On Slack and DingTalk it makes no API calls of its own.
+- `/tag standing confirm` (admin-only) creates a Hermes cron job. The job runs on its schedule and posts to the chat until it is cancelled or paused.
+- `/tag admin clear` and `/tag admin disable` delete a chat's Tier-0, Tier-1 and media, and cancel the cron jobs behind its standing jobs. They do not reset the Hermes conversation; send `/new` for that.
+- Audit events (`/tag admin audit`) record startup, storage, admin, standing-job and lifecycle actions: ids, counts and fixed strings, never message text. They are kept after a clear. Rows written by earlier versions that held a context preview are scrubbed when the store opens.
 
 Read [SECURITY.md](SECURITY.md) and [docs/design/](docs/design/) before enabling a pilot chat.
 
