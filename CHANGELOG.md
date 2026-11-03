@@ -29,6 +29,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Audit events no longer store a 240-character context preview, which contained message text. Rows already
   written are scrubbed when the store opens.
+- `/tag admin clear` now cancels the Hermes cron jobs behind the chat's standing jobs, as `disable` does. Before,
+  they kept posting after clear and could no longer be listed or cancelled.
+- A message that has its own attachments and also quotes media keeps both sets of paths on its Tier-0 row, so
+  clear and eviction delete all of them. Before, the quoted media's paths replaced the message's own paths, and its
+  own attachment copies were left on disk.
 
 ## [0.4.0] - 2026-07-09
 
